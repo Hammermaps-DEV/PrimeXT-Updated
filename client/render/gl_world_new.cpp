@@ -794,7 +794,8 @@ static word Mod_ShaderSceneForward( msurface_t *s )
 
 	// mirror is actual only if we has actual screen texture!
 	bool surf_monitor = FBitSet(s->flags, SURF_SCREEN);
-	bool mirror = Surf_CheckSubview( s->info ) && !surf_monitor;
+	bool surf_portal = FBitSet(s->flags, SURF_PORTAL);
+	bool mirror = Surf_CheckSubview( s->info ) && !surf_monitor && !surf_portal;
 
 	if( es->forwardScene[mirror].IsValid() && es->lastRenderMode == e->curstate.rendermode )
 		return es->forwardScene[mirror].GetHandle(); // valid
@@ -965,6 +966,9 @@ static word Mod_ShaderSceneForward( msurface_t *s )
 	if (mirror) {
 		GL_AddShaderDirective(options, "PLANAR_REFLECTION");
 	}
+	else if (surf_portal) {
+		GL_AddShaderDirective(options, "PORTAL_SURFACE");
+	}
 
 	if (using_normalmap && surf_transparent)
 	{
@@ -1017,18 +1021,18 @@ static word Mod_ShaderLightForward( CDynLight *dl, msurface_t *s )
 	char options[MAX_OPTIONS_LENGTH];
 	mfaceinfo_t *landscape = NULL;
 	mextrasurf_t *es = s->info;
-	int lightOmniType = !FBitSet(dl->flags, DLF_NOSHADOWS) ? 0 : 1;
+	int32_t lightShadowType = !FBitSet(dl->flags, DLF_NOSHADOWS) ? 0 : 1;
 
 	switch( dl->type )
 	{
 		case LIGHT_SPOT:
-			if (es->forwardLightSpot.IsValid()) {
-				return es->forwardLightSpot.GetHandle(); // valid
+			if (es->forwardLightSpot[lightShadowType].IsValid()) {
+				return es->forwardLightSpot[lightShadowType].GetHandle(); // valid
 			}
 			break;
 		case LIGHT_OMNI:
-			if (es->forwardLightOmni[lightOmniType].IsValid()) {
-				return es->forwardLightOmni[lightOmniType].GetHandle(); // valid
+			if (es->forwardLightOmni[lightShadowType].IsValid()) {
+				return es->forwardLightOmni[lightShadowType].GetHandle(); // valid
 			}
 			break;
 		case LIGHT_DIRECTIONAL:
@@ -1135,7 +1139,7 @@ static word Mod_ShaderLightForward( CDynLight *dl, msurface_t *s )
 			if (shadow_smooth_type == 4)
 				GL_AddShaderDirective(options, "SHADOW_VOGEL_DISK");
 		}
-		else if( dl->type == LIGHT_SPOT || GL_Support( R_EXT_GPU_SHADER4 ))
+		else
 		{
 			GL_AddShaderDirective( options, "APPLY_SHADOW" );
 			if (shadow_smooth_type == 2)
@@ -1162,11 +1166,11 @@ static word Mod_ShaderLightForward( CDynLight *dl, msurface_t *s )
 	switch( dl->type )
 	{
 	case LIGHT_SPOT:
-		es->forwardLightSpot.SetShader( shaderNum );
+		es->forwardLightSpot[lightShadowType].SetShader( shaderNum );
 		ClearBits( s->flags, SURF_NODLIGHT );
 		break;
 	case LIGHT_OMNI:
-		es->forwardLightOmni[lightOmniType].SetShader( shaderNum );
+		es->forwardLightOmni[lightShadowType].SetShader( shaderNum );
 		ClearBits( s->flags, SURF_NODLIGHT );
 		break;
 	case LIGHT_DIRECTIONAL:
@@ -1174,137 +1178,6 @@ static word Mod_ShaderLightForward( CDynLight *dl, msurface_t *s )
 		ClearBits( s->flags, SURF_NOSUNLIGHT );
 		break;
 	}
-
-	return shaderNum;
-}
-
-/*
-=================
-Mod_ShaderSceneDeferred
-
-compute deferred albedo
-=================
-*/
-static word Mod_ShaderSceneDeferred( msurface_t *s )
-{
-	char glname[64];
-	char options[MAX_OPTIONS_LENGTH];
-	bool using_cubemaps = false;
-	mextrasurf_t *es = s->info;
-
-	if( es->deferredScene.IsValid( ))
-		return es->deferredScene.GetHandle(); // valid
-
-	Q_strncpy( glname, "deferred/scene_bmodel", sizeof( glname ));
-	memset( options, 0, sizeof( options ));
-
-	material_t *mat = s->texinfo->texture->material;
-	mfaceinfo_t *landscape = s->texinfo->faceinfo;
-
-	if( FBitSet( mat->flags, BRUSH_MULTI_LAYERS ) && landscape && landscape->terrain )
-	{
-		GL_AddShaderDirective( options, va( "TERRAIN_NUM_LAYERS %i", landscape->terrain->numLayers ));
-		GL_AddShaderDirective( options, "APPLY_TERRAIN" );
-
-		if( landscape->terrain->indexmap.gl_diffuse_id != TextureHandle::Null() && CVAR_TO_BOOL(r_detailtextures))
-			GL_AddShaderDirective( options, "HAS_DETAIL" );
-	}
-	else
-	{
-		if( FBitSet( mat->flags, BRUSH_HAS_DETAIL ) && CVAR_TO_BOOL( r_detailtextures ))
-			GL_AddShaderDirective( options, "HAS_DETAIL" );
-	}
-
-	if( FBitSet( mat->flags, BRUSH_FULLBRIGHT ) || R_FullBright( ))
-		GL_AddShaderDirective( options, "LIGHTING_FULLBRIGHT" );
-
-	if( FBitSet( mat->flags, BRUSH_HAS_LUMA ))
-		GL_AddShaderDirective( options, "HAS_LUMA" );
-
-	if( !RP_CUBEPASS() && ( FBitSet( mat->flags, BRUSH_HAS_BUMP ) && CVAR_TO_BOOL( cv_bump )))
-	{
-		GL_AddShaderDirective( options, "HAS_NORMALMAP" );
-		GL_EncodeNormal( options, mat->impl->gl_normalmap_id );
-		GL_AddShaderDirective( options, "COMPUTE_TBN" );
-	}
-
-	if (FBitSet(mat->flags, BRUSH_HAS_HEIGHTMAP) && mat->impl->reliefScale > 0.0f)
-	{
-		if ((mat->impl->gl_heightmap_id != tr.blackTexture) && (cv_parallax->value > 0.0f))
-		{
-			if (cv_parallax->value == 1.0f)
-				GL_AddShaderDirective(options, "PARALLAX_SIMPLE");
-			else if (cv_parallax->value >= 2.0f)
-				GL_AddShaderDirective(options, "PARALLAX_OCCLUSION");
-		}
-	}
-
-	if( !RP_CUBEPASS() && ( CVAR_TO_BOOL( cv_specular ) && FBitSet( mat->flags, BRUSH_HAS_SPECULAR )))
-	{
-		GL_AddShaderDirective( options, "HAS_GLOSSMAP" );
-
-		if(( world->num_cubemaps > 0 ) && CVAR_TO_BOOL( r_cubemap ) && !RP_CUBEPASS( ))
-		{
-			GL_AddShaderDirective( options, "REFLECTION_CUBEMAP" );
-			using_cubemaps = true;
-		}
-	}
-
-	word shaderNum = GL_FindUberShader( glname, options );
-
-	if( !shaderNum )
-	{
-		tr.fClearScreen = true; // to avoid ugly blur
-		SetBits( s->flags, SURF_NODRAW );
-		return 0; // something bad happens
-	}
-
-	if( using_cubemaps )
-		GL_AddShaderFeature( shaderNum, SHADER_USE_CUBEMAPS );
-
-	// done
-	es->deferredScene.SetShader( shaderNum );
-	ClearBits( s->flags, SURF_NODRAW );
-
-	return shaderNum;
-}
-
-/*
-=================
-Mod_ShaderLightDeferred
-
-compute deferred lighting
-=================
-*/
-static word Mod_ShaderLightDeferred( msurface_t *s )
-{
-	char glname[64];
-	char options[MAX_OPTIONS_LENGTH];
-	mextrasurf_t *es = s->info;
-
-	if( es->deferredLight.IsValid( ))
-		return es->deferredLight.GetHandle(); // valid
-
-	Q_strncpy( glname, "deferred/light_bmodel", sizeof( glname ));
-	memset( options, 0, sizeof( options ));
-
-	material_t *mat = s->texinfo->texture->material;
-
-	if( FBitSet( mat->flags, BRUSH_HAS_LUMA ) || FBitSet( mat->flags, BRUSH_FULLBRIGHT ) || R_FullBright( ))
-		GL_AddShaderDirective( options, "LIGHTING_FULLBRIGHT" );
-
-	word shaderNum = GL_FindUberShader( glname, options );
-
-	if( !shaderNum )
-	{
-		tr.fClearScreen = true; // to avoid ugly blur
-		SetBits( s->flags, SURF_NODRAW );
-		return 0; // something bad happens
-	}
-
-	// done
-	es->deferredLight.SetShader( shaderNum );
-	ClearBits( s->flags, SURF_NODRAW );
 
 	return shaderNum;
 }
@@ -1732,15 +1605,15 @@ get_next_light:
 		}
 	}
 
-	if( ignored == -1 )
-	{
-		if( count > (int)cv_deferred_maxlights->value )
-			ALERT( at_aiconsole, "total %i lights affected to face\n", count );
+	if( ignored == -1 ) {
 		return;
 	}
-	for( i = 0; i < (int)cv_deferred_maxlights->value && lights[i] != 255; i++ );
-	if( i < (int)cv_deferred_maxlights->value )
+
+	for( i = 0; i < MAXDYNLIGHTS && lights[i] != 255; i++ );
+	if( i < MAXDYNLIGHTS ) {
 		lights[i] = light;	// nearest light for surf
+	}
+
 	indexes[ignored] = -1;		// this light is handled
 
 //	if( count > (int)cv_deferred_maxlights->value && i == (int)cv_deferred_maxlights->value )
@@ -1748,201 +1621,10 @@ get_next_light:
 	goto get_next_light;
 }
 
-/*
-=================
-Mod_InitLightTexture
-=================
-*/
-static void Mod_InitLightTexture( void )
-{
-	mworldlight_t	*wl = world->worldlights;
-	int		height = ((world->numworldlights / 256) + 1) * 3;
-	int		lightnum = 0;
-	int		width = 256;
-
-	if( !world->numworldlights )
-		return;
-
-	Vector4D	*worldlights = (Vector4D *)Mem_Alloc( sizeof( Vector4D ) * width * height );
-//	Msg( "light: %d %d\n", width, height );
-
-	for( int y = 0; y < height; y += 3 )
-	{
-		for( int x = 0; x < width; x++, lightnum++ )
-		{
-			if( lightnum == world->numworldlights )
-				break;
-
-			wl = &world->worldlights[lightnum];
-
-			worldlights[((y+0)*width)+x] = Vector4D( NormalToFloat( wl->normal ), wl->stopdot, wl->stopdot2, wl->emittype );
-			worldlights[((y+1)*width)+x] = Vector4D( wl->origin[0], wl->origin[1], wl->origin[2], wl->falloff );
-			worldlights[((y+2)*width)+x] = Vector4D( wl->intensity[0], wl->intensity[1], wl->intensity[2], wl->style );
-		}
-	}
-
-	tr.packed_lights_texture = CREATE_TEXTURE( "*worldlights", width, height, (byte *)worldlights, TF_STORAGE );
-	Mem_Free( worldlights );
-}
-
-/*
-=================
-Mod_InitBSPTreeTexture
-=================
-*/
-static void Mod_InitBSPTreeTexture( void )
-{
-	int		planenum = 0;
-	int		height = 256;
-	int		width = 256;
-	int		nodenum = 0;
-	mnode_t		*cn, *child;
-	int		x, y;
-	dclipnode_t	out;
-	mplane_t		*pl;
-
-	// planes are 4-th components float texture 256x56 (max 65536 planes)
-	Vector4D	*worldplanes = (Vector4D *)Mem_Alloc( sizeof( Vector4D ) * width * height );
-
-	for( y = 0; y < height; y++ )
-	{
-		for( x = 0; x < width; x++, planenum++ )
-		{
-			if( planenum == worldmodel->numplanes )
-				break;
-
-			pl = &worldmodel->planes[planenum];
-
-			// we not enough free space to store type or signbits but these optimizations doesn't matter on GPU anyway
-			worldplanes[(y*width)+x] = Vector4D( pl->normal.x, pl->normal.y, pl->normal.z, pl->dist );
-		}
-	}
-
-	tr.packed_planes_texture = CREATE_TEXTURE( "*worldplanes", width, height, (byte *)worldplanes, TF_STORAGE );
-	Mem_Free( worldplanes );
-
-	// nodes are 4-th components float texture 256x256 (max 65536 nodes)
-	Vector4D	*worldnodes = (Vector4D *)Mem_Alloc( sizeof( Vector4D ) * width * height );
-
-	for( y = 0; y < height; y++ )
-	{
-		for( x = 0; x < width; x++, nodenum++ )
-		{
-			if( nodenum == worldmodel->numnodes )
-				break; // all nodes are stored
-
-			cn = &worldmodel->nodes[nodenum];
-			out.planenum = cn->plane - worldmodel->planes;
-
-			// convert nodes to clipnodes
-			for( int j = 0; j < 2; j++ )
-			{
-				child = cn->children[j];
-
-				if( child->contents < 0 )
-					out.children[j] = child->contents;
-				else out.children[j] = child - worldmodel->nodes;
-			}
-
-			// FIXME: store into 4-th component something useful :)
-			worldnodes[(y*width)+x] = Vector4D( out.children[0], out.children[1], out.planenum, 0.0f ); // unused
-		}
-	}
-
-	tr.packed_nodes_texture = CREATE_TEXTURE( "*worldnodes", width, height, (byte *)worldnodes, TF_STORAGE );
-	Mem_Free( worldnodes );
-
-//	Msg( "bsp structure placed into textures (%i nodes, %i planes)\n", worldmodel->numnodes, worldmodel->numplanes );
-}
-
-/*
-=================
-Mod_InitBSPTreeTexture
-=================
-*/
-void Mod_InitBSPModelsTexture( void )
-{
-	gl_state_t *glm;
-	Vector		absmin, absmax;
-	static double	lastupdate;
-	static cl_entity_t *visible_ents[MAX_VISIBLE_ENTS];
-	
-	if( !CVAR_TO_BOOL( cv_deferred_tracebmodels ))
-		return;
-
-	if( !FBitSet( RI->params, RP_DEFERREDSCENE|RP_DEFERREDLIGHT ))
-		return;
-
-	if( lastupdate > Sys_DoubleTime( ))
-		return;
-
-	// don't upload models too often
-	lastupdate = Sys_DoubleTime() + 0.01;
-	world->num_visible_models = 0;
-
-	for( int i = 0; i < tr.num_draw_entities; i++ )
-	{
-		cl_entity_t *e = tr.draw_entities[i];
-
-		if( !e || !e->model || e->model->type != mod_brush )
-			continue;
-
-		if( e->curstate.rendermode != kRenderNormal )
-			continue;
-
-		glm = GL_GetCache( e->hCachedMatrix );
-		visible_ents[world->num_visible_models] = e;
-		world->num_visible_models++;
-	}
-
-	int	height = worldmodel->numsubmodels;
-	int	width = 8, flags = 0;
-
-	// data representation [width = 26][height = nummodels]
-	// first 6 floats - bounding box, next 16 floats - actual model matrix,
-	// next 2 float - rootnode, totalnodes, last 2 floats - first face,
-	Vector4D	*worldmodels = (Vector4D *)stackalloc( sizeof( Vector4D ) * width * height );
-
-	for( int y = 0; y < world->num_visible_models; y++ )
-	{
-		cl_entity_t *e = visible_ents[y];
-		// grab the transformed vieworg
-		glm = GL_GetCache( e->hCachedMatrix );
-		matrix4x4 im = glm->transform.Invert();
-		model_t *m = e->model;
-
-		if( e->angles != g_vecZero )
-		{
-			TransformAABB( glm->transform, e->model->mins, e->model->maxs, absmin, absmax );
-		}
-		else
-		{
-			absmin = e->origin + e->model->mins;
-			absmax = e->origin + e->model->maxs;
-		}
-
-		// first 2 pixels - transformed bounding box, identity flag, rootnode
-		worldmodels[(y*width)+0] = Vector4D( absmin.x, absmin.y, absmin.z, e->hCachedMatrix > 0 ? 1.0f : 0.0f );
-		worldmodels[(y*width)+1] = Vector4D( absmax.x, absmax.y, absmax.z, m->hulls[0].firstclipnode );
-
-		// next 4 pixels - actual inverted model matrix
-		worldmodels[(y*width)+2] = Vector4D( im[0][0],  im[1][0],  im[2][0],  im[3][0] );
-		worldmodels[(y*width)+3] = Vector4D( im[0][1],  im[1][1],  im[2][1],  im[3][1] );
-		worldmodels[(y*width)+4] = Vector4D( im[0][2],  im[1][2],  im[2][2],  im[3][2] );
-		worldmodels[(y*width)+5] = Vector4D( im[0][3],  im[1][3],  im[2][3],  im[3][3] );
-	}
-
-	// if texture already present - update it
-	if( tr.packed_models_texture.Initialized() )
-		SetBits( flags, TF_UPDATE );
-
-	// it will automatically called glSubImage on next calls
-	tr.packed_models_texture = CREATE_TEXTURE( "*worldmodels", width, height, (byte *)worldmodels, TF_STORAGE | flags );
-}
-
 static void CreateBufferBaseGL21( bvert_t *arrayxvert )
 {
-	static bvert_v0_gl21_t	arraybvert[MAX_MAP_VERTS*4];
+	std::vector<bvert_v0_gl21_t> arraybvert;
+	arraybvert.resize(world->numvertexes);
 
 	// convert to GLSL-compacted array
 	for( int i = 0; i < world->numvertexes; i++ )
@@ -2014,7 +1696,8 @@ static void BindBufferBaseGL21( void )
 
 static void CreateBufferBaseGL30( bvert_t *arrayxvert )
 {
-	static bvert_v0_gl30_t	arraybvert[MAX_MAP_VERTS*4];
+	std::vector<bvert_v0_gl30_t> arraybvert;
+	arraybvert.resize(world->numvertexes);
 
 	// convert to GLSL-compacted array
 	for( int i = 0; i < world->numvertexes; i++ )
@@ -2438,12 +2121,6 @@ static void Mod_LoadWorld( model_t *mod, const byte *buf )
 
 	// precache world shaders
 	Mod_PrecacheShaders();
-
-	// creating float texture from worldlights
-	Mod_InitLightTexture();
-
-	// put bsp-tree into two texture (planes and nodes)
-	Mod_InitBSPTreeTexture();
 }
 
 static void Mod_FreeWorld( model_t *mod )
@@ -2474,30 +2151,6 @@ static void Mod_FreeWorld( model_t *mod )
 
 	// free landscapes
 	R_FreeLandscapes();
-
-	if( tr.packed_lights_texture.Initialized() )
-	{
-		FREE_TEXTURE( tr.packed_lights_texture );
-		tr.packed_lights_texture = TextureHandle::Null();
-	}
-
-	if( tr.packed_planes_texture.Initialized() )
-	{
-		FREE_TEXTURE( tr.packed_planes_texture );
-		tr.packed_planes_texture = TextureHandle::Null();
-	}
-
-	if( tr.packed_nodes_texture.Initialized() )
-	{
-		FREE_TEXTURE( tr.packed_nodes_texture );
-		tr.packed_nodes_texture = TextureHandle::Null();
-	}
-
-	if( tr.packed_models_texture.Initialized() )
-	{
-		FREE_TEXTURE( tr.packed_models_texture );
-		tr.packed_models_texture = TextureHandle::Null();
-	}
 
 	if( world->materials )
 	{
@@ -2735,7 +2388,7 @@ _forceinline void R_DrawSurface( mextrasurf_t *es )
 void R_MarkVisibleLights( byte lights[MAXDYNLIGHTS] )
 {
 	// mark lights that visible for this frame
-	for( int i = 0; i < (int)cv_deferred_maxlights->value && lights[i] != 255; i++ )
+	for( int i = 0; i < MAXDYNLIGHTS && lights[i] != 255; i++ )
 		SETVISBIT( RI->view.vislight, lights[i] );
 }
 
@@ -2759,13 +2412,8 @@ bool R_AddSurfaceToDrawList( msurface_t *surf, drawlist_t drawlist_type )
 	case DRAWLIST_SOLID:
 		if( FBitSet( surf->flags, SURF_NODRAW ))
 			return false;
-		if( FBitSet( RI->params, RP_DEFERREDSCENE|RP_DEFERREDLIGHT ))
-		{
-			// precache shaders
-			Mod_ShaderSceneDeferred( surf );
-			Mod_ShaderLightDeferred( surf );
-		}
-		else hProgram = Mod_ShaderSceneForward( surf );
+
+		hProgram = Mod_ShaderSceneForward( surf );
 		R_MarkVisibleLights( es->lights );
 
 		entry_s.SetRenderSurface( surf, hProgram );
@@ -2883,12 +2531,10 @@ void R_SetSurfaceUniforms( word hProgram, msurface_t *surface, bool force )
 		else GL_Cull( GL_FRONT );
 	}
 
-	if( !FBitSet( RI->params, RP_DEFERREDLIGHT ))
-	{ 
-		if( FBitSet( mat->flags, BRUSH_TRANSPARENT|BRUSH_HAS_ALPHA ))
-			GL_AlphaTest( GL_TRUE );
-		else GL_AlphaTest( GL_FALSE );
-	}
+	if( FBitSet( mat->flags, BRUSH_TRANSPARENT|BRUSH_HAS_ALPHA ))
+		GL_AlphaTest( GL_TRUE );
+	else 
+		GL_AlphaTest( GL_FALSE );
 
 	tr.modelorg = glm->GetModelOrigin();
 
@@ -3013,15 +2659,6 @@ void R_SetSurfaceUniforms( word hProgram, msurface_t *surface, bool force )
 			u->SetValue(width, height, mat->impl->reliefScale, cv_shadow_offset->value);
 			break;
 		}
-		case UT_BSPPLANESMAP:
-			u->SetValue( tr.packed_planes_texture.ToInt() );
-			break;
-		case UT_BSPNODESMAP:
-			u->SetValue( tr.packed_nodes_texture.ToInt() );
-			break;
-		case UT_BSPLIGHTSMAP:
-			u->SetValue( tr.packed_lights_texture.ToInt() );
-			break;
 		case UT_FITNORMALMAP:
 			u->SetValue( tr.normalsFitting.ToInt() );
 			break;
@@ -3222,6 +2859,61 @@ void R_SetSurfaceUniforms( word hProgram, msurface_t *surface, bool force )
 }
 
 /*
+=================
+R_SortSolidBrushFaces
+
+=================
+*/
+static int R_SortSolidBrushFaces( const CSolidEntry *a, const CSolidEntry *b )
+{
+	msurface_t	*surf1, *surf2;
+	mextrasurf_t	*esrf1, *esrf2;
+
+	surf1 = a->m_pSurf;
+	surf2 = b->m_pSurf;
+	esrf1 = surf1->info;
+	esrf2 = surf2->info;
+
+	if( esrf1->forwardScene[0].GetHandle() > esrf2->forwardScene[0].GetHandle() )
+		return 1;
+
+	if( esrf1->forwardScene[0].GetHandle() < esrf2->forwardScene[0].GetHandle() )
+		return -1;
+
+	if( esrf1->forwardScene[1].GetHandle() > esrf2->forwardScene[1].GetHandle() )
+		return 1;
+
+	if( esrf1->forwardScene[1].GetHandle() < esrf2->forwardScene[1].GetHandle() )
+		return -1;
+
+	if( surf1->texinfo->texture->gl_texturenum > surf2->texinfo->texture->gl_texturenum )
+		return 1;
+
+	if( surf1->texinfo->texture->gl_texturenum < surf2->texinfo->texture->gl_texturenum )
+		return -1;
+
+	if( esrf1->lightmaptexturenum > esrf2->lightmaptexturenum )
+		return 1;
+
+	if( esrf1->lightmaptexturenum < esrf2->lightmaptexturenum )
+		return -1;
+
+	if( esrf1->parent > esrf2->parent )
+		return 1;
+
+	if( esrf1->parent < esrf2->parent )
+		return -1;
+
+	//if( esrf1->parent->hCachedMatrix > esrf2->parent->hCachedMatrix )
+	//	return 1;
+
+	//if( esrf1->parent->hCachedMatrix < esrf2->parent->hCachedMatrix )
+	//	return -1;
+
+	return 0;
+}
+
+/*
 ================
 R_RenderDynLightList
 
@@ -3350,7 +3042,7 @@ void R_DrawLightForSurfList( CDynLight *pl )
 			{
 				pglDrawRangeElements( GL_TRIANGLES, startv, endv - 1, numTempElems, GL_UNSIGNED_INT, tempElems );
 				r_stats.c_total_tris += (numTempElems / 3);
-				r_stats.num_flushes++;
+				r_stats.num_flushes_total++;
 				numTempElems = 0;
 			}
 
@@ -3375,7 +3067,7 @@ void R_DrawLightForSurfList( CDynLight *pl )
 	{
 		pglDrawRangeElements( GL_TRIANGLES, startv, endv - 1, numTempElems, GL_UNSIGNED_INT, tempElems );
 		r_stats.c_total_tris += (numTempElems / 3);
-		r_stats.num_flushes++;
+		r_stats.num_flushes_total++;
 		startv = MAX_MAP_ELEMS;
 		numTempElems = 0;
 		endv = 0;
@@ -3448,133 +3140,6 @@ void R_RenderDynLightList( bool solid )
 
 /*
 ================
-R_RenderDeferredBrushList
-================
-*/
-void R_RenderDeferredBrushList( void )
-{
-	cl_entity_t	*cached_entity = NULL;
-	material_t	*cached_material = NULL;
-	mcubemap_t	*cached_cubemap[2];
-	bool		flush_buffer = false;
-	int		startv, endv;
-
-	if( !RI->frame.solid_faces.Count() )
-		return;
-
-	GL_DEBUG_SCOPE();
-	GL_Blend( GL_FALSE );
-	GL_AlphaTest( GL_FALSE );
-	GL_DepthMask( GL_TRUE );
-	pglAlphaFunc( GL_GREATER, 0.25f );
-	numTempElems = 0;
-
-	if( GL_Support( R_SEAMLESS_CUBEMAP ))
-		pglEnable( GL_TEXTURE_CUBE_MAP_SEAMLESS );
-
-	pglBindVertexArray( world->vertex_array_object );
-	cached_cubemap[0] = &world->defaultCubemap;
-	cached_cubemap[1] = &world->defaultCubemap;
-
-	for( int i = 0; i < RI->frame.solid_faces.Count(); i++ )
-	{
-		CSolidEntry *entry = &RI->frame.solid_faces[i];
-
-		if( entry->m_bDrawType != DRAWTYPE_SURFACE )
-			continue;
-
-		mextrasurf_t *es = entry->m_pSurf->info;
-		cl_entity_t *e = RI->currententity = es->parent;
-		RI->currentmodel = e->model;
-		msurface_t *s = entry->m_pSurf;
-
-		if( FBitSet( RI->params, RP_DEFERREDSCENE ))
-			entry->m_hProgram = es->deferredScene.GetHandle();
-		else if( FBitSet( RI->params, RP_DEFERREDLIGHT ))
-			entry->m_hProgram = es->deferredLight.GetHandle();
-		else entry->m_hProgram = 0;
-
-		if( !entry->m_hProgram ) continue;
-
-		material_t *mat = R_TextureAnimation( s )->material;
-
-		if(( i == 0 ) || ( RI->currentshader != &glsl_programs[entry->m_hProgram] ))
-			flush_buffer = true;
-
-		if( cached_entity != RI->currententity )
-			flush_buffer = true;
-
-		if( cached_material != mat )
-			flush_buffer = true;
-
-		if( ShaderUseCubemaps( RI->currentshader ) && ( cached_cubemap[0] != es->cubemap[0] || cached_cubemap[1] != es->cubemap[1] ))
-			flush_buffer = true;
-
-		if( flush_buffer )
-		{
-			if( numTempElems )
-			{
-				pglDrawRangeElements( GL_TRIANGLES, startv, endv - 1, numTempElems, GL_UNSIGNED_INT, tempElems );
-				r_stats.c_total_tris += (numTempElems / 3);
-				r_stats.num_flushes++;
-				numTempElems = 0;
-			}
-
-			flush_buffer = false;
-			startv = MAX_MAP_ELEMS;
-			endv = 0;
-		}
-
-		// now cache values
-		cached_entity = RI->currententity = es->parent;
-		RI->currentmodel = es->parent->model;
-		cached_cubemap[0] = es->cubemap[0];
-		cached_cubemap[1] = es->cubemap[1];
-		cached_material = mat;
-
-		if( numTempElems == 0 ) // new chain has started, apply uniforms
-			R_SetSurfaceUniforms( entry->m_hProgram, entry->m_pSurf, ( i == 0 ));
-		startv = Q_min( startv, es->firstvertex );
-		endv = Q_max( es->firstvertex + es->numverts, endv );
-
-		R_DrawSurface( es );
-	}
-
-	if( numTempElems )
-	{
-		pglDrawRangeElements( GL_TRIANGLES, startv, endv - 1, numTempElems, GL_UNSIGNED_INT, tempElems );
-		r_stats.c_total_tris += (numTempElems / 3);
-		r_stats.num_flushes++;
-		startv = MAX_MAP_ELEMS;
-		numTempElems = 0;
-		endv = 0;
-	}
-
-	if( GL_Support( R_SEAMLESS_CUBEMAP ))
-		pglDisable( GL_TEXTURE_CUBE_MAP_SEAMLESS );
-
-	GL_DepthRange( gldepthmin, gldepthmax );
-	GL_SelectTexture( glConfig.max_texture_units - 1 ); // force to cleanup all the units
-	GL_CleanUpTextureUnits( 0 );
-	GL_AlphaTest( GL_FALSE );
-	GL_ClipPlane( true );
-
-	if( FBitSet( RI->params, RP_DEFERREDSCENE ))
-	{
-		// render all decals with alpha-channel
-		R_RenderDecalsSolidList( DRAWLIST_SOLID );
-		// render all decals with gray base
-		R_RenderDecalsSolidList( DRAWLIST_TRANS );
-	}
-
-	// draw grass on visible surfaces
-	R_RenderGrassOnList();
-
-	GL_CleanupDrawState();
-}
-
-/*
-================
 R_RenderSolidBrushList
 ================
 */
@@ -3591,6 +3156,7 @@ void R_RenderSolidBrushList( void )
 	if( !RI->frame.solid_faces.Count() )
 		return;
 
+	RI->frame.solid_faces.Sort( R_SortSolidBrushFaces );
 	GL_DEBUG_SCOPE();
 	GL_Blend( GL_FALSE );
 	GL_AlphaTest( GL_FALSE );
@@ -3621,23 +3187,35 @@ void R_RenderSolidBrushList( void )
 
 		material_t *mat = R_TextureAnimation( s )->material;
 
-		if(( i == 0 ) || ( RI->currentshader != &glsl_programs[entry->m_hProgram] ))
+		if ((i == 0) || (RI->currentshader != &glsl_programs[entry->m_hProgram])) {
 			flush_buffer = true;
+			r_stats.solid_brush_list_flushes.num_flushes_shader++;
+		}
 
-		if( cached_entity != RI->currententity )
+		if (cached_entity != RI->currententity) {
 			flush_buffer = true;
+			r_stats.solid_brush_list_flushes.num_flushes_entity++;
+		}
 
-		if( cached_material != mat )
+		if (cached_material != mat) {
 			flush_buffer = true;
+			r_stats.solid_brush_list_flushes.num_flushes_material++;
+		}
 
-		if( cached_lightmap != es->lightmaptexturenum )
+		if (cached_lightmap != es->lightmaptexturenum) {
 			flush_buffer = true;
+			r_stats.solid_brush_list_flushes.num_flushes_lightmap++;
+		}
 
-		if( cached_mirror != es->subtexture[glState.stack_position] )
+		if (cached_mirror != es->subtexture[glState.stack_position]) {
 			flush_buffer = true;
+			r_stats.solid_brush_list_flushes.num_flushes_mirrortex++;
+		}
 
-		if( ShaderUseCubemaps( RI->currentshader ) && ( cached_cubemap[0] != es->cubemap[0] || cached_cubemap[1] != es->cubemap[1] ))
+		if (ShaderUseCubemaps(RI->currentshader) && (cached_cubemap[0] != es->cubemap[0] || cached_cubemap[1] != es->cubemap[1])) {
 			flush_buffer = true;
+			r_stats.solid_brush_list_flushes.num_flushes_cubemap++;
+		}
 
 		if( flush_buffer )
 		{
@@ -3645,7 +3223,7 @@ void R_RenderSolidBrushList( void )
 			{
 				pglDrawRangeElements( GL_TRIANGLES, startv, endv - 1, numTempElems, GL_UNSIGNED_INT, tempElems );
 				r_stats.c_total_tris += (numTempElems / 3);
-				r_stats.num_flushes++;
+				r_stats.num_flushes_total++;
 				numTempElems = 0;
 			}
 
@@ -3675,7 +3253,7 @@ void R_RenderSolidBrushList( void )
 	{
 		pglDrawRangeElements( GL_TRIANGLES, startv, endv - 1, numTempElems, GL_UNSIGNED_INT, tempElems );
 		r_stats.c_total_tris += (numTempElems / 3);
-		r_stats.num_flushes++;
+		r_stats.num_flushes_total++;
 		startv = MAX_MAP_ELEMS;
 		numTempElems = 0;
 		endv = 0;
@@ -3760,7 +3338,7 @@ void R_RenderTransSurface( CTransEntry *entry )
 	{
 		pglDrawRangeElements( GL_TRIANGLES, startv, endv - 1, numTempElems, GL_UNSIGNED_INT, tempElems );
 		r_stats.c_total_tris += (numTempElems / 3);
-		r_stats.num_flushes++;
+		r_stats.num_flushes_total++;
 		numTempElems = 0;
 	}
 
@@ -3822,7 +3400,7 @@ void R_RenderShadowBrushList( void )
 			{
 				pglDrawRangeElements( GL_TRIANGLES, startv, endv - 1, numTempElems, GL_UNSIGNED_INT, tempElems );
 				r_stats.c_total_tris += (numTempElems / 3);
-				r_stats.num_flushes++;
+				r_stats.num_flushes_total++;
 				numTempElems = 0;
 			}
 
@@ -3848,7 +3426,7 @@ void R_RenderShadowBrushList( void )
 	{
 		pglDrawRangeElements( GL_TRIANGLES, startv, endv - 1, numTempElems, GL_UNSIGNED_INT, tempElems );
 		r_stats.c_total_tris += (numTempElems / 3);
-		r_stats.num_flushes++;
+		r_stats.num_flushes_total++;
 		startv = MAX_MAP_ELEMS;
 		numTempElems = 0;
 		endv = 0;

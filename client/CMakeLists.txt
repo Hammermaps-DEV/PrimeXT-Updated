@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.19)
 
 project(client)
 include(CheckIncludeFile)
@@ -13,7 +13,6 @@ list(APPEND CLDLL_SOURCES
 	"battery.cpp"
 	"cdll_int.cpp"
 	"death.cpp"
-	"flashlight.cpp"
 	"geiger.cpp"
 	"health.cpp"
 	"entity.cpp"
@@ -50,6 +49,7 @@ list(APPEND CLDLL_SOURCES
 	"${CMAKE_SOURCE_DIR}/game_shared/material.cpp"
 	"${CMAKE_SOURCE_DIR}/game_shared/mathlib.cpp"
 	"${CMAKE_SOURCE_DIR}/game_shared/matrix.cpp"
+	"${CMAKE_SOURCE_DIR}/game_shared/bounding_box.cpp"
 	"${CMAKE_SOURCE_DIR}/game_shared/meshdesc.cpp"
 	"${CMAKE_SOURCE_DIR}/game_shared/meshdesc_factory.cpp"
 	"${CMAKE_SOURCE_DIR}/game_shared/playermove.cpp"

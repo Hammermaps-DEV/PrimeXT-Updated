@@ -89,6 +89,7 @@ texFlags_t R_SetupMirrorView( msurface_t *surf, ref_viewpass_t *rvp, matrix4x4 &
 	rvp->viewangles[0] = anglemod( angles[0] );
 	rvp->viewangles[1] = anglemod( angles[1] );
 	rvp->viewangles[2] = anglemod( angles[2] );
+	rvp->viewangles[2] = -rvp->viewangles[2];
 	rvp->vieworigin = origin;
 
 	rvp->fov_x = RI->view.fov_x;
@@ -198,7 +199,7 @@ texFlags_t R_SetupPortalView(msurface_t *surf, ref_viewpass_t *rvp, cl_entity_t 
 	rvp->vieworigin = origin;
 	rvp->fov_x = RI->view.fov_x;
 	rvp->fov_y = RI->view.fov_y;
-	rvp->flags = RP_PORTALVIEW | RP_CLIPPLANE;
+	rvp->flags = RP_PORTALVIEW | RP_CLIPPLANE | RP_MERGE_PVS;
 
 	// set clipping plane
 	SetPlane(&plane, cameraMat.GetForward(), DotProduct(cameraMat.GetForward(), camera->origin));

@@ -36,6 +36,7 @@
 #include "physcallback.h"
 #include "meshdesc_factory.h"
 #include "sv_materials.h"
+#include "env_message.h"
 
 extern CGraph WorldGraph;
 extern CSoundEnt *pSoundEnt;
@@ -63,6 +64,7 @@ public:
 	virtual void	*CreateBoxFromEntity( CBaseEntity *pObject ) { return NULL; }
 	virtual void	*CreateKinematicBodyFromEntity( CBaseEntity *pEntity ) { return NULL; }
 	virtual void	*CreateStaticBodyFromEntity( CBaseEntity *pObject ) { return NULL; }
+	virtual void	*CreateTriggerFromEntity( CBaseEntity *pEntity ) { return NULL; }
 	virtual void	*CreateVehicle( CBaseEntity *pObject, string_t scriptName = 0 ) { return NULL; }
 	virtual void	*RestoreBody( CBaseEntity *pEntity ) { return NULL; }
 	virtual void	SaveBody( CBaseEntity *pObject ) {}
@@ -81,7 +83,7 @@ public:
 	virtual int	FLoadTree( char *szMapName ) { return 0; }
 	virtual int	CheckBINFile( char *szMapName ) { return 0; }
 	virtual int	BuildCollisionTree( char *szMapName ) { return 0; }
-	virtual bool	UpdateEntityPos( CBaseEntity *pEntity ) { return false; }
+	virtual bool	UpdateEntityTransform( CBaseEntity *pEntity ) { return false; }
 	virtual void	UpdateEntityAABB( CBaseEntity *pEntity ) {}
 	virtual bool	UpdateActorPos( CBaseEntity *pEntity ) { return false; };
 	virtual void	SetupWorld( void ) {}	
@@ -697,9 +699,7 @@ void CWorld :: Precache( void )
 
 	ClientPrecache();
 
-// initialize material system
-	COM_InitMatdef();
-	SV_InitMaterials();
+	COM_PrecacheMaterialsSounds();
 
 // sounds used from C physics code
 	PRECACHE_SOUND("common/null.wav");				// clears sound channels

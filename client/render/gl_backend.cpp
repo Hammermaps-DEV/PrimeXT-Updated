@@ -83,9 +83,17 @@ static void GL_PrintStats( int params )
 		R_Speeds_Printf( "%3i mirror faces\n%3i tess verts\n", RI->frame.num_subview_faces, RI->frame.primverts.Count() );
 		break;
 	case 2:
-		R_Speeds_Printf( "DIP count %3i\nShader bind %3i\n", r_stats.num_flushes, r_stats.num_shader_binds );
+		R_Speeds_Printf( "DIP count %3i\nShader bind %3i\n", r_stats.num_flushes_total, r_stats.num_shader_binds );
 		R_Speeds_Printf( "Frame total tris %3i\n", r_stats.c_total_tris );
-		R_Speeds_Printf( "Total GLSL shaders %3i", num_glsl_programs - 1 );
+		R_Speeds_Printf( "Total GLSL shaders %3i\n", num_glsl_programs - 1 );
+		R_Speeds_Printf( "\nSolid brush drawcall flushes:\n  shader %3i\n  material %3i\n  entity %3i\n  cubemap %3i\n  mirror %3i\n  lightmap %3i",
+			r_stats.solid_brush_list_flushes.num_flushes_shader, 
+			r_stats.solid_brush_list_flushes.num_flushes_material,
+			r_stats.solid_brush_list_flushes.num_flushes_entity,
+			r_stats.solid_brush_list_flushes.num_flushes_cubemap,
+			r_stats.solid_brush_list_flushes.num_flushes_mirrortex,
+			r_stats.solid_brush_list_flushes.num_flushes_lightmap
+		);
 		break;
 	case 3:
 		Q_snprintf(r_speeds_msg, sizeof(r_speeds_msg),
@@ -176,7 +184,7 @@ void GL_ComputeSunParams( const Vector &skyVector )
 	float	ambientIntensity = 0.0025f + sunBrightness * Q_min(1.0f, Q_max(0.0f, (0.375f + sunPos) / 0.25f));
 	float	diffuseIntensity = sunBrightness * Q_min(1.0f, Q_max(0.0f, (0.03125f + sunPos) / 0.0625f));
 
-	float ambientFactor = RemapVal(tr.ambientFactor, AMBIENT_EPSILON, r_lighting_modulate->value, 0.0f, 1.0f);
+	float ambientFactor = RemapVal(tr.ambientFactor, AMBIENT_EPSILON, 1.0f, 0.0f, 1.0f);
 	tr.sun_ambient = Q_max(ambientIntensity * ambientFactor, 0.0f);
 	tr.sun_ambient = bound(0.0f, tr.sun_ambient, tr.ambientFactor);
 	tr.sun_diffuse = sunColor * diffuseIntensity;
@@ -248,8 +256,8 @@ bool GL_BackendStartFrame( ref_viewpass_t *rvp, RefParams params )
 		pglFinish();
 
 	// setup light factors
-	tr.ambientFactor = bound( AMBIENT_EPSILON, r_lighting_ambient->value, r_lighting_modulate->value );
-	float cachedFactor = bound( tr.ambientFactor, r_lighting_modulate->value, 1.0f );
+	tr.ambientFactor = bound( AMBIENT_EPSILON, r_lighting_ambient->value, 1.0f );
+	float cachedFactor = bound( tr.ambientFactor, 1.0f, 1.0f );
 
 	if( cachedFactor != tr.diffuseFactor )
 	{
@@ -462,7 +470,6 @@ void GL_BackendEndFrame( ref_viewpass_t *rvp, RefParams params )
 
 	mstudiolight_t	light;
 	bool hdr_rendering = CVAR_TO_BOOL(gl_hdr);
-	bool deferred = CVAR_TO_BOOL(cv_deferred);
 	bool multisampling = CVAR_GET_FLOAT("gl_msaa") > 0.0f;
 
 	tr.frametime = tr.saved_frametime;
@@ -496,10 +503,9 @@ void GL_BackendEndFrame( ref_viewpass_t *rvp, RefParams params )
 	RI->view.fov_x = rvp->fov_x;
 	RI->view.fov_y = rvp->fov_y; 
 
-	if (!deferred)
-		R_DrawViewModel();		// 3D
+	R_DrawViewModel();		// 3D
 
-	if (!deferred && hdr_rendering)
+	if (hdr_rendering)
 	{
 		if (multisampling)
 		{
@@ -515,7 +521,7 @@ void GL_BackendEndFrame( ref_viewpass_t *rvp, RefParams params )
 	RenderDOF();				// 2D
 	RenderNerveGasBlur();		// 2D
 	RenderUnderwaterBlur();		// 2D
-	if (!deferred && hdr_rendering)
+	if (hdr_rendering)
 	{
 		RenderBloom();
 		RenderTonemap();		// should be last step in HDR pipeline!!!
@@ -526,7 +532,7 @@ void GL_BackendEndFrame( ref_viewpass_t *rvp, RefParams params )
 	RenderPostprocessing();		// 2D
 	R_ShowLightMaps();			// 2D
 	
-	if (!deferred && hdr_rendering) {
+	if (hdr_rendering) {
 		R_RenderScreenQuad();
 	}
 

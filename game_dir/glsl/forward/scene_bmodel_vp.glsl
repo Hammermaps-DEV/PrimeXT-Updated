@@ -39,7 +39,7 @@ centroid varying vec2	var_TexGlobal;
 centroid varying vec3	var_ViewDir;
 centroid varying vec3	var_Position;
 
-#if defined( PLANAR_REFLECTION )
+#if defined( PLANAR_REFLECTION ) || defined( PORTAL_SURFACE )
 varying vec4	var_TexMirror;	// mirror coords
 #endif
 
@@ -106,6 +106,8 @@ void main( void )
 #endif
 
 #if defined( PLANAR_REFLECTION )
+	var_TexMirror = ( Mat4Texture( 0.5 ) * u_ReflectMatrix ) * position;
+#elif defined( PORTAL_SURFACE )
 	var_TexMirror = ( Mat4Texture( 0.5 ) * u_ReflectMatrix ) * worldpos;
 #endif
 

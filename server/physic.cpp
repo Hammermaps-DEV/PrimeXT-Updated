@@ -25,7 +25,7 @@ GNU General Public License for more details.
 #include "com_model.h"
 #include "studio.h"
 #include "movelist.h"
-#include "xash3d_features.h"
+#include "enginefeatures.h"
 #include "render_api.h"
 #include "physic.h"
 #include "triangleapi.h"
@@ -622,7 +622,9 @@ bool CPhysicsPushedEntities::SpeculativelyCheckPush( PhysicsPushedInfo_t &info, 
 		}
 
 		// we're not blocked if the blocker is point-sized or non-solid
-		if( pBlocker->IsPointSized() || pBlocker->pev->solid == SOLID_NOT )
+		// dynamic actors also doesn't block way since all pushables are kinematic actors
+		// and they just can push away other dynamic actors despite of obstacles
+		if( pBlocker->IsPointSized() || pBlocker->pev->solid == SOLID_NOT || bIsDynamic )
 		{
 			return true;
 		}
@@ -1836,7 +1838,7 @@ void SV_Physics_Rigid( CBaseEntity *pEntity )
 
 	UTIL_WaterMove( pEntity );
 	SV_CheckWater( pEntity );
-	WorldPhysic->UpdateEntityPos( pEntity );
+	WorldPhysic->UpdateEntityTransform( pEntity );
 
 	// detect the ground
 	CBaseEntity *pGround = pEntity->GetGroundEntity();
@@ -2545,7 +2547,7 @@ void SV_Physics_Vehicle( CBaseEntity *pEntity )
 	SV_CheckWater( pEntity );
 
 	// sync physic states
-	WorldPhysic->UpdateEntityPos( pEntity );
+	WorldPhysic->UpdateEntityTransform( pEntity );
 
 	float movetime = gpGlobals->frametime;
 

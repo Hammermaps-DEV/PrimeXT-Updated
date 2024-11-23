@@ -16,6 +16,7 @@ GNU General Public License for more details.
 #ifndef COM_MODEL_H
 #define COM_MODEL_H
 
+#include "build.h"
 #include "bspfile.h"	// we need some declarations from it
 #include "shader.h"
 #include "lightlimits.h"
@@ -313,15 +314,17 @@ typedef struct mextrasurf_s
 	unsigned int	query;		// test surface for occluding (active if query != 0)
 // shader cache
 	shader_t		forwardScene[2];	// two for mirrors
-	shader_t		forwardLightSpot;
-	shader_t		forwardLightOmni[2]; // first for w/ shadows, second for w/o shadows
+	shader_t		forwardLightSpot[2]; // first for w/ shadows, second for w/o shadows
+	shader_t		forwardLightOmni[2]; 
 	shader_t		forwardLightProj;
-	shader_t		deferredScene;
-	shader_t		deferredLight;
 	shader_t		forwardDepth;
 
 	struct brushdecal_s	*pdecals;		// linked decals
-	intptr_t		reserved[21];	// just for future expansions or mod-makers
+#if XASH_64BIT == 1
+	intptr_t		reserved[25];	// just for future expansions or mod-makers
+#else
+	intptr_t		reserved[22];	// just for future expansions or mod-makers
+#endif
 } mextrasurf_t;
 
 typedef struct msurface_s
@@ -442,13 +445,13 @@ typedef struct model_s
 	union
 	{
 	byte		*visdata;
-	struct mposebone_s	*poseToBone;
+	struct mposetobone_t *poseToBone;
 	};
 
 	union
 	{
 	color24		*lightdata;
-	struct mvbocache_s	*studiocache;	// pointer to VBO-prepared model (only for mod_studio)
+	struct mstudiocache_t *studiocache;	// pointer to VBO-prepared model (only for mod_studio)
 	};
 
 	union
@@ -521,7 +524,7 @@ typedef struct mspriteframe_s
 } mspriteframe_t;
 
 typedef struct
-{
+{ 
 	int		numframes;
 	float		*intervals;
 	mspriteframe_t	*frames[1];
@@ -546,4 +549,15 @@ typedef struct
 	mspriteframedesc_t	frames[1];
 } msprite_t;
 
-#endif//COM_MODEL_H
+// check size of customizable structures for compliance with engine structs
+#if XASH_X86 == 1
+static_assert(sizeof(mextrasurf_t) == 324, "mextrasurf_t structure size should be same as on engine");
+static_assert(sizeof(decal_t) == 60, "decal_t structure size should be same as on engine");
+static_assert(sizeof(mfaceinfo_t) == 176, "mfaceinfo_t structure size should be same as on engine");
+#elif XASH_AMD64 == 1
+static_assert(sizeof(mextrasurf_t) == 496, "mextrasurf_t structure size should be same as on engine");
+static_assert(sizeof(decal_t) == 88, "decal_t structure size should be same as on engine");
+static_assert(sizeof(mfaceinfo_t) == 304, "mfaceinfo_t structure size should be same as on engine");
+#endif
+
+#endif // COM_MODEL_H

@@ -67,7 +67,7 @@ centroid varying vec2		var_TexGlobal;
 centroid varying vec3		var_ViewDir;
 centroid varying vec3		var_Position;
 
-#if defined( PLANAR_REFLECTION )
+#if defined( PLANAR_REFLECTION ) || defined( PORTAL_SURFACE )
 varying vec4		var_TexMirror;	// mirror coords
 #endif
 
@@ -137,8 +137,8 @@ void main( void )
 #endif // HAS_GLOSSMAP
 
 #if defined( LIQUID_SURFACE )
-	float waterBorderFactor = 1.0, waterAbsorbFactor = 1.0, waterRefractFactor = 1.0;
-	float fSampledDepth = texture2D( u_DepthMap, gl_FragCoord.xy * u_ScreenSizeInv ).r;
+	float waterBorderFactor = 1.0, waterRefractFactor = 1.0;
+	float fSampledDepth = texture( u_DepthMap, gl_FragCoord.xy * u_ScreenSizeInv ).r;
 	fSampledDepth = linearizeDepth( u_zFar, fSampledDepth );
 	fSampledDepth = RemapVal( fSampledDepth, Z_NEAR, u_zFar, 0.0, 1.0 );
 
@@ -147,24 +147,22 @@ void main( void )
 	fOwnDepth = RemapVal( fOwnDepth, Z_NEAR, u_zFar, 0.0, 1.0 );
 
 #if defined (LIQUID_UNDERWATER)
-	waterBorderFactor = waterAbsorbFactor = waterRefractFactor = u_RenderColor.a;
+	waterBorderFactor = waterRefractFactor = u_RenderColor.a;
 #else
 	float depthDelta = fOwnDepth - fSampledDepth;
-	float waterAbsorbScale = clamp(u_RenderColor.a - (1.0 / 255.0), 0.0, 1.0) * 50.0;
 	waterBorderFactor = 1.0 - saturate(exp2( -768.0 * 100.0 * depthDelta ));
 	waterRefractFactor = 1.0 - saturate(exp2( -768.0 * 5.0 * depthDelta ));
-	waterAbsorbFactor = 1.0 - saturate(exp2( -768.0 * waterAbsorbScale * depthDelta ));
 #endif // LIQUID_UNDERWATER
 #endif // LIQUID_SURFACE
 
 // compute the result term
-#if defined( PLANAR_REFLECTION )
+#if defined( PLANAR_REFLECTION ) || defined( PORTAL_SURFACE )
 	albedo = reflectmap2D( u_ColorMap, var_TexMirror, N, gl_FragCoord.xyz, u_RefractScale );
 #elif defined( APPLY_TERRAIN )
 	albedo = TerrainMixDiffuse( u_ColorMap, vec_TexDiffuse, mask0, mask1, mask2, mask3 );
 #elif defined( MONITOR_BRUSH )
 	// in case of rendering monitor we don't need SRGB->linear conversion
-	albedo = texture2D( u_ColorMap, vec_TexDiffuse );
+	albedo = texture( u_ColorMap, vec_TexDiffuse );
 #else
 	albedo = colormap2D( u_ColorMap, vec_TexDiffuse );
 #endif
@@ -233,7 +231,7 @@ void main( void )
 #endif // !LIGHTING_FULLBRIGHT
 
 #if defined( HAS_LUMA )
-	result.rgb += texture2D( u_GlowMap, vec_TexDiffuse ).rgb;
+	result.rgb += texture( u_GlowMap, vec_TexDiffuse ).rgb;
 #endif
 
 #if defined( REFLECTION_CUBEMAP )
@@ -249,19 +247,18 @@ void main( void )
 	float distortScale = 1.0;
 #endif
 	// prohibits displaying in refractions objects, that are closer to camera than brush surface
-	float distortedDepth = texture2D(u_DepthMap, GetDistortedTexCoords(N, distortScale)).r;
+	float distortedDepth = texture(u_DepthMap, GetDistortedTexCoords(N, distortScale)).r;
 	distortScale *= step(gl_FragCoord.z, distortedDepth);
 
 	// fetch color for saved screencopy
 	vec3 screenmap = GetScreenColor( N, distortScale );
-#if defined( PLANAR_REFLECTION )
+#if defined( PLANAR_REFLECTION ) || defined( PORTAL_SURFACE )
 	result.a = GetFresnel( saturate(dot(V, N)), WATER_F0_VALUE, FRESNEL_FACTOR );
 #endif // PLANAR_REFLECTION
 
 #if defined( LIQUID_SURFACE )
 	vec3 waterColor = u_RenderColor.rgb;
-	vec3 borderSmooth = mix( screenmap, screenmap * waterColor, waterBorderFactor ); // smooth transition between water and ground
-	vec3 refracted = mix( borderSmooth, lighting.diffuse * waterColor, waterAbsorbFactor ); // mix between refracted light and own water color
+	vec3 refracted = mix( screenmap, screenmap * waterColor, waterBorderFactor ); // smooth transition between water and ground
 #if defined( REFLECTION_CUBEMAP )
 	// blend refracted and reflected part together 
 	float fresnel = GetFresnel( V, N, WATER_F0_VALUE, FRESNEL_FACTOR );

@@ -22,6 +22,7 @@ GNU General Public License for more details.
 #include "gl_cvars.h"
 #include "gl_debug.h"
 #include <utlarray.h>
+#include <vector>
 #include <stringlib.h>
 #include "vertex_fmt.h"
 
@@ -44,7 +45,8 @@ static float		m_flGrassFadeEnd;
 
 static void CreateBufferBaseGL21( grass_t *pOut, gvert_t *arrayxvert )
 {
-	static gvert_v0_gl21_t	arraygvert[MAX_GRASS_VERTS];
+	std::vector<gvert_v0_gl21_t> arraygvert;
+	arraygvert.resize(pOut->numVerts);
 
 	// convert to GLSL-compacted array
 	for( int i = 0; i < pOut->numVerts; i++ )
@@ -91,7 +93,8 @@ static void BindBufferBaseGL21( grass_t *pOut, int attrFlags )
 
 static void CreateBufferBaseGL30( grass_t *pOut, gvert_t *arrayxvert )
 {
-	static gvert_v0_gl30_t	arraygvert[MAX_GRASS_VERTS];
+	std::vector<gvert_v0_gl30_t> arraygvert;
+	arraygvert.resize(pOut->numVerts);
 
 	// convert to GLSL-compacted array
 	for( int i = 0; i < pOut->numVerts; i++ )
@@ -136,7 +139,8 @@ static void BindBufferBaseGL30( grass_t *pOut, int attrFlags )
 
 static void CreateBufferBaseBumpGL21( grass_t *pOut, gvert_t *arrayxvert )
 {
-	static gvert_v1_gl21_t	arraygvert[MAX_GRASS_VERTS];
+	std::vector<gvert_v1_gl21_t> arraygvert;
+	arraygvert.resize(pOut->numVerts);
 
 	// convert to GLSL-compacted array
 	for( int i = 0; i < pOut->numVerts; i++ )
@@ -190,7 +194,8 @@ static void BindBufferBaseBumpGL21( grass_t *pOut, int attrFlags )
 
 static void CreateBufferBaseBumpGL30( grass_t *pOut, gvert_t *arrayxvert )
 {
-	static gvert_v1_gl30_t	arraygvert[MAX_GRASS_VERTS];
+	std::vector<gvert_v1_gl30_t> arraygvert;
+	arraygvert.resize(pOut->numVerts);
 
 	// convert to GLSL-compacted array
 	for( int i = 0; i < pOut->numVerts; i++ )
@@ -693,7 +698,7 @@ void R_DrawGrassMeshFromBuffer( const grass_t *mesh )
 	else pglDrawElements( GL_TRIANGLES, mesh->numElems, GL_UNSIGNED_SHORT, 0 );
 
 	r_stats.c_total_tris += (mesh->numVerts / 2);
-	r_stats.num_flushes++;
+	r_stats.num_flushes_total++;
 }
 
 /*
@@ -895,9 +900,7 @@ void R_RenderGrassOnList( void )
 	if( !RI->frame.grass_list.Count())
 		return; // don't waste time
 
-	if( !FBitSet( RI->params, RP_DEFERREDLIGHT ))
-		GL_AlphaTest( GL_TRUE );
-	else GL_AlphaTest( GL_FALSE );
+	GL_AlphaTest( GL_TRUE );
 
 	GL_DEBUG_SCOPE();
 	pglAlphaFunc( GL_GREATER, r_grass_alpha->value );
@@ -913,19 +916,8 @@ void R_RenderGrassOnList( void )
 	{
 		grass_t *g = RI->frame.grass_list[i];
 
-		if( FBitSet( RI->params, RP_DEFERREDSCENE ))
-			hCurrentShader = g->deferredScene.GetHandle();
-		else if( FBitSet( RI->params, RP_DEFERREDLIGHT ))
-			hCurrentShader = g->deferredLight.GetHandle();
-		else hCurrentShader = g->forwardScene.GetHandle();
-
+		hCurrentShader = g->forwardScene.GetHandle();
 		if( !hCurrentShader ) continue;
-
-		if( FBitSet( RI->params, RP_DEFERREDSCENE|RP_DEFERREDLIGHT ) && memcmp( g->lights, cached_lights, MAXDYNLIGHTS ))
-		{
-			memcpy( cached_lights, g->lights, MAXDYNLIGHTS );
-			update_params = true;
-		}
 
 		if( hCachedMatrix != g->hCachedMatrix )
 		{
@@ -1327,11 +1319,7 @@ static word R_GrassShaderLightForward( CDynLight *dl, grass_t *g )
 
 	if( CVAR_TO_BOOL( r_shadows ) && !FBitSet( dl->flags, DLF_NOSHADOWS ))
 	{
-		// shadow cubemaps only support if GL_EXT_gpu_shader4 is support
-		if( dl->type == LIGHT_DIRECTIONAL && CVAR_TO_BOOL( r_sunshadows ))
-			GL_AddShaderDirective( options, "APPLY_SHADOW" );
-		else if( dl->type == LIGHT_SPOT || GL_Support( R_EXT_GPU_SHADER4 ))
-			GL_AddShaderDirective( options, "APPLY_SHADOW" );
+		GL_AddShaderDirective( options, "APPLY_SHADOW" );
 	}
 
 	// debug visualization
@@ -1369,78 +1357,6 @@ static word R_GrassShaderLightForward( CDynLight *dl, grass_t *g )
 		ClearBits( g->flags, FGRASS_NOSUNLIGHT );
 		break;
 	}
-
-	return shaderNum;
-}
-
-/*
-================
-R_GrassShaderSceneDeferred
-
-grass scene deferred
-================
-*/
-word R_GrassShaderSceneDeferred( msurface_t *s, grass_t *g )
-{
-	char glname[64];
-	char options[MAX_OPTIONS_LENGTH];
-	mextrasurf_t *es = s->info;
-
-	if( g->deferredScene.IsValid( ))
-		return g->deferredScene.GetHandle(); // valid
-
-	Q_strncpy( glname, "deferred/scene_grass", sizeof( glname ));
-	memset( options, 0, sizeof( options ));
-
-	material_t *mat = s->texinfo->texture->material;
-
-	GL_AddShaderDirective( options, "APPLY_FADE_DIST" );
-
-	word shaderNum = GL_FindUberShader( glname, options );
-	if( !shaderNum )
-	{
-		SetBits( g->flags, FGRASS_NODRAW );
-		return 0; // something bad happens
-	}
-
-	ClearBits( g->flags, FGRASS_NODRAW );
-	g->deferredScene.SetShader( shaderNum );
-
-	return shaderNum;
-}
-
-/*
-================
-R_GrassShaderLightDeferred
-
-grass light deferred
-================
-*/
-word R_GrassShaderLightDeferred( msurface_t *s, grass_t *g )
-{
-	char glname[64];
-	char options[MAX_OPTIONS_LENGTH];
-	mextrasurf_t *es = s->info;
-
-	if( g->deferredLight.IsValid( ))
-		return g->deferredLight.GetHandle(); // valid
-
-	Q_strncpy( glname, "deferred/light_grass", sizeof( glname ));
-	memset( options, 0, sizeof( options ));
-
-	material_t *mat = s->texinfo->texture->material;
-
-	GL_AddShaderDirective( options, "APPLY_FADE_DIST" );
-
-	word shaderNum = GL_FindUberShader( glname, options );
-	if( !shaderNum )
-	{
-		SetBits( g->flags, FGRASS_NODRAW );
-		return 0; // something bad happens
-	}
-
-	g->deferredLight.SetShader( shaderNum );
-	ClearBits( g->flags, FGRASS_NODRAW );
 
 	return shaderNum;
 }
@@ -1587,7 +1503,7 @@ void R_AddGrassToDrawList( msurface_t *s, drawlist_t drawlist_type )
 		frustum = &RI->currentlight->frustum;
 	else frustum = &RI->view.frustum;
 
-	if( frustum && frustum->CullBox( absmin, absmax ))
+	if( frustum && frustum->CullBoxFast( absmin, absmax ))
 		return;
 
 	// NOTE: at this point we have surface that passed visibility and frustum tests
@@ -1603,18 +1519,14 @@ void R_AddGrassToDrawList( msurface_t *s, drawlist_t drawlist_type )
 		case DRAWLIST_SOLID:
 			if( FBitSet( grass->flags, FGRASS_NODRAW ))
 				continue;
-			if( FBitSet( RI->params, RP_DEFERREDSCENE|RP_DEFERREDLIGHT ))
-			{
-				// precache shaders
-				R_GrassShaderSceneDeferred( s, grass );
-				R_GrassShaderLightDeferred( s, grass );
-			}
-			else R_GrassShaderSceneForward( s, grass );
+
+			R_GrassShaderSceneForward( s, grass );
 			RI->frame.grass_list.AddToTail( grass );
 			break;
 		case DRAWLIST_SHADOW:
 			if( FBitSet( grass->flags, FGRASS_NODRAW ))
 				continue;
+
 			R_GrassShaderSceneDepth( s, grass );
 			RI->frame.grass_list.AddToTail( grass );
 			break;

@@ -164,7 +164,7 @@ static int R_ComputeCropBounds( const matrix4x4 &lightViewProjection, Vector bou
 			worldBounds[1] = es->maxs;
 		}
 
-		if( frustum.CullBox( worldBounds[0], worldBounds[1] ))
+		if( frustum.CullBoxFast( worldBounds[0], worldBounds[1] ))
 			continue;
 
 		for( int j = 0; j < 8; j++ )
@@ -192,7 +192,7 @@ static int R_ComputeCropBounds( const matrix4x4 &lightViewProjection, Vector bou
 		if( !R_StudioGetBounds( &prevRI->frame.solid_meshes[i], worldBounds ))
 			continue;
 
-		if( frustum.CullBox( worldBounds[0], worldBounds[1] ))
+		if( frustum.CullBoxFast( worldBounds[0], worldBounds[1] ))
 			continue;
 
 		for( int j = 0; j < 8; j++ )
@@ -376,13 +376,20 @@ static void R_ShadowPassSetupViewCache( CDynLight *pl, int split = 0 )
 		RI->currentmodel = RI->currententity->model;
 
 		// skip entities with disabled shadow casting
-		if (RI->currententity->curstate.effects & EF_NOSHADOW)
+		if (FBitSet(RI->currententity->curstate.effects, EF_NOSHADOW))
 			continue;
 
 		// disable rendering shadows for local player
 		if (!CVAR_TO_BOOL(r_renderplayershadow)) 
 		{
 			if (RI->currententity->index == localPlayerIndex)
+				continue;
+		}
+
+		// skip entities that marked as parent for dynlight and according flag set
+		if (FBitSet(pl->flags, DLF_PARENTENTITY_NOSHADOW) && pl->parentEntity)
+		{
+			if (RI->currententity->index == pl->parentEntity->index)
 				continue;
 		}
 
@@ -617,8 +624,7 @@ void R_RenderShadowmaps( void )
 
 		if( pl->type == LIGHT_OMNI )
 		{
-			// need GL_EXT_gpu_shader4 for cubemap shadows
-			if( !GL_Support( R_TEXTURECUBEMAP_EXT ) || !GL_Support( R_EXT_GPU_SHADER4 ))
+			if( !GL_Support( R_TEXTURECUBEMAP_EXT ))
 				continue;
 
 			if( !Mod_CheckBoxVisible( pl->absmin, pl->absmax ))

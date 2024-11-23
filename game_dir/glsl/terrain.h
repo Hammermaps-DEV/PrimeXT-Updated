@@ -20,7 +20,6 @@ GNU General Public License for more details.
 uniform sampler2DArray	u_LayerMap;
 #endif
 
-#if defined( GLSL_ALLOW_TEXTURE_ARRAY )
 void TerrainReadMask( const vec2 tc, inout vec4 mask0, inout vec4 mask1, inout vec4 mask2, inout vec4 mask3 )
 {
 #if defined( APPLY_TERRAIN )
@@ -44,9 +43,8 @@ void TerrainReadMask( const vec2 tc, inout vec4 mask0, inout vec4 mask1, inout v
 	mask0 = mask1 = mask2 = mask3 = vec4( 0.0 );
 #endif
 }
-#endif
 
-#if defined( GLSL_ALLOW_TEXTURE_ARRAY )
+#if defined( APPLY_TERRAIN )
 vec4 TerrainMixDiffuse( sampler2DArray tex, vec2 tc, vec4 mask0, vec4 mask1, vec4 mask2, vec4 mask3 )
 {
 	vec4 diffuse = vec4( 0.0 );
@@ -100,9 +98,7 @@ vec4 TerrainMixDiffuse( sampler2DArray tex, vec2 tc, vec4 mask0, vec4 mask1, vec
 #endif
 	return diffuse;
 }
-#endif
 
-#if defined( GLSL_ALLOW_TEXTURE_ARRAY )
 vec3 TerrainMixNormal( sampler2DArray tex, vec2 tc, vec4 mask0, vec4 mask1, vec4 mask2, vec4 mask3 )
 {
 	vec3 normal = vec3( 0.0 );
@@ -156,9 +152,7 @@ vec3 TerrainMixNormal( sampler2DArray tex, vec2 tc, vec4 mask0, vec4 mask1, vec4
 #endif
 	return normalize( normal );
 }
-#endif
 
-#if defined ( APPLY_TERRAIN )
 float TerrainMixSmoothness( const in float smoothness[TERRAIN_NUM_LAYERS], vec4 mask0, vec4 mask1, vec4 mask2, vec4 mask3 )
 {
 	float	result = 0.0;
@@ -213,9 +207,7 @@ float TerrainMixSmoothness( const in float smoothness[TERRAIN_NUM_LAYERS], vec4 
 #endif
 	return result;
 }
-#endif
 
-#if defined( GLSL_ALLOW_TEXTURE_ARRAY )
 vec4 TerrainMixGlossmap( sampler2DArray tex, vec2 tc, vec4 mask0, vec4 mask1, vec4 mask2, vec4 mask3 )
 {
 	vec4 gloss = vec4( 0.0 );
@@ -269,10 +261,8 @@ vec4 TerrainMixGlossmap( sampler2DArray tex, vec2 tc, vec4 mask0, vec4 mask1, ve
 #endif
 	return gloss;
 }
-#endif
 
 // this is for debug
-#if defined( GLSL_ALLOW_TEXTURE_ARRAY )
 vec4 TerrainColorDebug( vec4 mask0, vec4 mask1, vec4 mask2, vec4 mask3 )
 {
 	vec4 diffuse = vec4( vec3( 0.0 ), 1.0 );	// black as default
@@ -343,4 +333,4 @@ vec4 TerrainColorDebug( vec4 mask0, vec4 mask1, vec4 mask2, vec4 mask3 )
 	return diffuse;
 }
 #endif
-#endif
+#endif // APPLY_TERRAIN

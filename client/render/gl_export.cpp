@@ -564,6 +564,7 @@ static void GL_InitExtensions( void )
 	else glConfig.hardware_type = GLHW_GENERIC;
 
 	glConfig.version = Q_atof( glConfig.version_string );
+	glConfig.debug_context = gEngfuncs.CheckParm("-gldebug", NULL) != 0;
 
 	Msg( "GL_VERSION: %g\n", glConfig.version );
 
@@ -606,12 +607,6 @@ static void GL_InitExtensions( void )
 		}
 	}
 
-	// 2d texture array support
-	GL_CheckExtension( "GL_EXT_texture_array", NULL, "gl_texture_2d_array", R_TEXTURE_ARRAY_EXT, true );
-
-	if( !GL_Support( R_TEXTURE_ARRAY_EXT ))
-		ALERT( at_warning, "GL_EXT_texture_array not support. Landscapes will be unavailable\n" );
-
 	// occlusion queries
 	GL_CheckExtension( "GL_ARB_occlusion_query", occlusionfunc, "gl_occlusion_queries", R_OCCLUSION_QUERIES_EXT );
 
@@ -646,11 +641,6 @@ static void GL_InitExtensions( void )
 		g_fRenderInitialized = FALSE;
 		return;
 	}
-
-	GL_CheckExtension( "GL_EXT_gpu_shader4", NULL, "gl_ext_gpu_shader4", R_EXT_GPU_SHADER4 );
-
-	if( !GL_Support( R_EXT_GPU_SHADER4 ))
-		ALERT( at_warning, "GL_EXT_gpu_shader4 not support. Shadows from omni lights will be disabled\n" );
 
 	GL_CheckExtension("GL_ARB_debug_output", debugoutputfuncs, "gl_debug_output", R_DEBUG_OUTPUT);
 	GL_CheckExtension("GL_KHR_debug", khr_debug_funcs, "gl_khr_debug", R_KHR_DEBUG);
@@ -713,10 +703,10 @@ static void GL_InitExtensions( void )
 
 	glConfig.max_2d_texture_size = 0;
 	pglGetIntegerv( GL_MAX_TEXTURE_SIZE, &glConfig.max_2d_texture_size );
-	if( glConfig.max_2d_texture_size <= 0 ) glConfig.max_2d_texture_size = 256;
+	if( glConfig.max_2d_texture_size <= 0 ) 
+		glConfig.max_2d_texture_size = 256;
 
-	if( GL_Support( R_TEXTURE_ARRAY_EXT ))
-		pglGetIntegerv( GL_MAX_ARRAY_TEXTURE_LAYERS_EXT, &glConfig.max_2d_texture_layers );
+	pglGetIntegerv( GL_MAX_ARRAY_TEXTURE_LAYERS_EXT, &glConfig.max_2d_texture_layers );
 
 	// FBO support
 	GL_CheckExtension( "GL_ARB_framebuffer_object", fbofuncs, "gl_framebuffers", R_FRAMEBUFFER_OBJECT );
@@ -753,16 +743,21 @@ static void GL_InitExtensions( void )
 
 	glConfig.max_texture_units = RENDER_GET_PARM( PARM_MAX_IMAGE_UNITS, 0 );
 
-	if (GL_Support(R_KHR_DEBUG)) {
-		pglEnable(GL_DEBUG_OUTPUT);
-	}
-
-	if (GL_Support(R_DEBUG_OUTPUT) || GL_Support(R_KHR_DEBUG))
+	if (glConfig.debug_context)
 	{
-		// force everything to happen in the main thread instead of in a separate driver thread
-		pglEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB);
-		pglDebugMessageCallbackARB(GL_DebugOutput, NULL);
-		pglDebugMessageControlARB(GL_DONT_CARE, GL_DONT_CARE, GL_DEBUG_SEVERITY_LOW_ARB, 0, NULL, true); // enable all the low priority messages
+		ALERT( at_aiconsole, "GL_InitExtensions: renderer initialized with debug context\n" );
+
+		if (GL_Support(R_KHR_DEBUG)) {
+			pglEnable(GL_DEBUG_OUTPUT);
+		}
+
+		if (GL_Support(R_DEBUG_OUTPUT) || GL_Support(R_KHR_DEBUG))
+		{
+			// force everything to happen in the main thread instead of in a separate driver thread
+			pglEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB);
+			pglDebugMessageCallbackARB(GL_DebugOutput, NULL);
+			pglDebugMessageControlARB(GL_DONT_CARE, GL_DONT_CARE, GL_DEBUG_SEVERITY_LOW_ARB, 0, NULL, true); // enable all the low priority messages
+		}
 	}
 
 	if (GL_Support(R_A2C_DITHER_CONTROL))
@@ -964,8 +959,7 @@ static void GL_InitTextures( void )
 	R_InitBlankBumpTexture();
 	R_InitVSDCTCubemap();
 
-	if( GL_Support( R_EXT_GPU_SHADER4 ))
-		tr.depthCubemap = CREATE_TEXTURE( "depthCube", 8, 8, NULL, TF_SHADOW_CUBEMAP ); 
+	tr.depthCubemap = CREATE_TEXTURE( "depthCube", 8, 8, NULL, TF_SHADOW_CUBEMAP ); 
 
 	// BRDF look-up table
 	tr.brdfApproxTexture = LOAD_TEXTURE("gfx/brdf_approx.dds", NULL, 0, TF_KEEP_SOURCE | TF_CLAMP);

@@ -25,8 +25,8 @@ CBaseEntity
 				CBasePlayer
 				CBaseGroup
 */
-
-#define		MAX_PATH_SIZE	10 // max number of nodes available for a path.
+#pragma once
+#define	MAX_PATH_SIZE	10 // max number of nodes available for a path.
 
 // These are caps bits to indicate what an object's capabilities (currently used for save/restore and level transitions)
 #define FCAP_SET_MOVEDIR		0x00000001	// convert initial angles into direction (doors used)
@@ -54,6 +54,7 @@ CBaseEntity
 #define MF_LADDER			BIT( 3 )		// ladders is sended to client for predict reasons
 #define MF_TEMP_PARENT		BIT( 4 )		// temporare parent on teleport
 
+#pragma once
 #include "saverestore.h"
 #include "schedule.h"
 
@@ -119,6 +120,7 @@ extern void DispatchUpdatePlayerBaseVelocity( edict_t *pEdict );
 #define ACTOR_CHARACTER		3	// player or monster physics shadow
 #define ACTOR_STATIC		4	// static actor (env_static)
 #define ACTOR_VEHICLE		5	// complex body (vehicle)
+#define ACTOR_TRIGGER		6	// used for func_water
 
 #define PARENT_FROZEN_POS_X		BIT( 1 )	// compatible with PhysX flags NX_BF_FROZEN_
 #define PARENT_FROZEN_POS_Y		BIT( 2 )
@@ -152,6 +154,9 @@ public:
 	entvars_t		*pev;		// Don't need to save/restore this pointer, the engine resets it
 
 	DECLARE_DATADESC();
+
+	// Always keep this virtual destructor, so derived classes can be properly destructed
+	virtual ~CBaseEntity() {}
 
 	// path corners
 	CBaseEntity	*m_pGoalEnt;	// path corner we are heading towards
@@ -218,7 +223,7 @@ public:
 	const Vector&	GetAbsAvelocity( void ) const;
 
 	const Vector&	GetBaseVelocity( void ) const { return pev->basevelocity; }
-
+	Vector		GetScale() const;
 	void		ApplyLocalVelocityImpulse( const Vector &vecImpulse );
 	void		ApplyAbsVelocityImpulse( const Vector &vecImpulse );
 
@@ -239,13 +244,14 @@ public:
 	// PhysX description
 	void		*m_pUserData;	// pointer to rigid body. may be NULL
 	unsigned char	m_iActorType;	// static, kinetic or dynamic
-	int		m_iActorFlags;	// NxActor->flags
-	int		m_iBodyFlags;	// NxBodyDesc->flags
-	short		m_usActorGroup;	// NxActor->group
+	uint32_t		m_iActorFlags;	// NxActor->flags
+	uint32_t		m_iBodyFlags;	// NxBodyDesc->flags
+	uint32_t		m_iFilterData[4];	// NxActor->group
 	float		m_flBodyMass;	// NxActor->mass
 	BOOL		m_fFreezed;	// is body sleeps?
 	bool		m_isChaining;
 	Vector		m_vecOldPosition;	// don't save this
+	Vector		m_vecOldBounds;
 
 	float		m_flShowHostile;	// for sprite monsters wake-up
 
@@ -273,13 +279,13 @@ public:
 	void		SetChaining( bool chaining ) { m_isChaining = chaining; }
 	BOOL		ShouldToggle( USE_TYPE useType );
 
-	const char*	GetClassname() { return STRING( pev->classname ); }
-	const char*	GetGlobalname() { return STRING( pev->globalname ); }
-	const char*	GetTargetname() { return STRING( pev->targetname ); }
-	const char*	GetTarget() { return STRING( pev->target ); }
-	const char*	GetMessage() { return STRING( pev->message ); }
-	const char*	GetNetname() { return STRING( pev->netname ); }
-	const char*	GetModel() { return STRING( pev->model ); }
+	const char*	GetClassname() const { return STRING( pev->classname ); } 
+	const char*	GetGlobalname() const { return STRING( pev->globalname ); }
+	const char*	GetTargetname() const { return STRING( pev->targetname ); }
+	const char*	GetTarget() const { return STRING( pev->target ); }
+	const char*	GetMessage() const { return STRING( pev->message ); }
+	const char*	GetNetname() const { return STRING( pev->netname ); }
+	const char*	GetModel() const { return STRING( pev->model ); }
 	void		SetModel( const char *model );
 	void		ReportInfo( void );
 
@@ -631,7 +637,6 @@ public:
 	{
 		if( m_iOldSolid == SOLID_NOT && pev->solid != SOLID_NOT )
 		{
-			WorldPhysic->EnableCollision( this, FALSE );
 			m_iOldSolid = pev->solid;
 			pev->solid = SOLID_NOT;
 		}
@@ -641,7 +646,6 @@ public:
 	{
 		if( m_iOldSolid != SOLID_NOT && pev->solid == SOLID_NOT )
 		{
-			WorldPhysic->EnableCollision( this, TRUE );
 			pev->solid = m_iOldSolid;
 			m_iOldSolid = SOLID_NOT;
 		}

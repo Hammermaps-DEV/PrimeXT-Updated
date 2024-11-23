@@ -25,6 +25,7 @@
 #include	"weapons.h"
 #include	"game.h"
 #include "user_messages.h"
+#include "beam.h"
 
 //#define USE_ENGINE_TOUCH_TRIGGERS
 
@@ -426,6 +427,18 @@ void CBaseEntity :: CalcAbsoluteAvelocity( void )
 
 	// g-cont. trying to get avelocity length, normalize, rotate by parent space and apply length again?
 #endif
+}
+
+Vector CBaseEntity::GetScale() const
+{
+	// storing scale in pev->startpos hack is specific for env_static
+	if (Q_strcmp(GetClassname(), "env_static") == 0)
+	{
+		if (pev->startpos.Length() > 0.001f) {
+			return pev->startpos;
+		}
+	}
+	return pev->scale > 0.001f ? vec3_t(pev->scale) : vec3_t(1.0f);
 }
 
 void CBaseEntity::ApplyLocalVelocityImpulse( const Vector &vecImpulse )
@@ -1372,7 +1385,7 @@ BEGIN_DATADESC_NO_BASE( CBaseEntity )
 	DEFINE_FIELD( m_vecAngles, FIELD_VECTOR ),
 	DEFINE_FIELD( m_vecVelocity, FIELD_VECTOR ), 
 	DEFINE_FIELD( m_vecAvelocity, FIELD_VECTOR ),
-	DEFINE_AUTO_ARRAY( m_local, FIELD_FLOAT ),		// matrix4x4
+	DEFINE_ARRAY( m_local, FIELD_FLOAT, 16 ),		// matrix4x4
 
 	DEFINE_FIELD( m_iFlags, FIELD_INTEGER ),
 	DEFINE_FIELD( m_iOldSolid, FIELD_INTEGER ),
@@ -1405,7 +1418,10 @@ BEGIN_DATADESC_NO_BASE( CBaseEntity )
 	DEFINE_FIELD( m_iActorType, FIELD_CHARACTER ),
 	DEFINE_FIELD( m_iActorFlags, FIELD_INTEGER ),
 	DEFINE_FIELD( m_iBodyFlags, FIELD_INTEGER ),
-	DEFINE_FIELD( m_usActorGroup, FIELD_SHORT ),
+	DEFINE_FIELD( m_iFilterData[0], FIELD_INTEGER ),
+	DEFINE_FIELD( m_iFilterData[1], FIELD_INTEGER ),
+	DEFINE_FIELD( m_iFilterData[2], FIELD_INTEGER ),
+	DEFINE_FIELD( m_iFilterData[3], FIELD_INTEGER ),
 	DEFINE_FIELD( m_flBodyMass, FIELD_FLOAT ),
 	DEFINE_FIELD( m_fFreezed, FIELD_BOOLEAN ),
 END_DATADESC()
