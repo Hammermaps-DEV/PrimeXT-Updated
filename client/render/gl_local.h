@@ -67,7 +67,9 @@ GNU General Public License for more details.
 #define WATER_TEXTURES	29
 #define WATER_ANIMTIME	20.0f
 
-#define INVALID_HANDLE	0xFFFF	// studio cache
+// should match with engine, used for XashXT studio cache system
+// defined in engine/client/client.h
+#define INVALID_HANDLE	0xFFFF
 
 #define FLASHLIGHT_KEY	-666
 #define SUNLIGHT_KEY	-777
@@ -75,9 +77,9 @@ GNU General Public License for more details.
 #define LM_SAMPLE_SIZE	16
 #define LM_SAMPLE_EXTRASIZE	8
 
-#define BLOCK_SIZE		glConfig.block_size		// lightmap blocksize
-#define BLOCK_SIZE_DEFAULT	128			// for keep backward compatibility
-#define BLOCK_SIZE_MAX	2048			// must match with engine const!!!
+#define GL_BLOCK_SIZE		glConfig.block_size		// lightmap blocksize
+#define GL_BLOCK_SIZE_DEFAULT	128			// for keep backward compatibility
+#define GL_BLOCK_SIZE_MAX	2048			// must match with engine const!!!
 #define SHADOW_SIZE		4096			// atlas size
 
 #define WORLD_MATRIX	0			// must be 0 always
@@ -229,9 +231,13 @@ typedef struct gl_fbo_s
 typedef struct gl_movie_s
 {
 	char		name[32];
-	void		*state;
+	struct movie_state_s *state;
 	float		length;		// total cinematic length
 	int			xres, yres;	// size of cinematic
+
+	bool finished;
+	bool sound_set;
+	bool texture_set;
 } gl_movie_t;
 
 typedef struct gl_texbuffer_s
@@ -270,7 +276,7 @@ typedef enum
 typedef struct
 {
 	lmstate_t		state;
-	unsigned short	allocated[BLOCK_SIZE_MAX];
+	unsigned short	allocated[GL_BLOCK_SIZE_MAX];
 	TextureHandle	lightmap;
 	TextureHandle	deluxmap;	
 } gl_lightmap_t;
@@ -560,7 +566,6 @@ typedef struct
 	bool		fogEnabled;
 	Vector		fogColor;
 	float		fogDensity;
-	float		fogSkyDensity;
 
 	// sky params
 	bool		ignore_2d_skybox;	// we already draw 3d skybox, so don't overwrite it in current pass
@@ -875,6 +880,7 @@ terrain_t *R_FindTerrain( const char *texname );
 void R_InitShadowTextures( void );
 void R_FreeLandscapes( void );
 byte R_LightToTexGamma( byte input );
+void R_UpdateFogParameters();
 
 //
 // gl_rsurf.cpp
@@ -910,6 +916,7 @@ void R_FreeCinematics( void );
 int R_PrecacheCinematic( const char *cinname );
 int R_AllocateCinematicTexture( unsigned int txFlags );
 void R_UpdateCinematic( const msurface_t *surf );
+bool R_UpdateCinematicDynLight( int videoFileIndex, CDynLight *dlight );
 void R_UpdateCinSound( cl_entity_t *e );
 
 //

@@ -227,7 +227,7 @@ void R_ClearScene( void )
 	tr.sky_camera = nullptr;
 	tr.local_client_added = false;
 	tr.num_draw_entities = 0;
-	tr.cached_state.Purge(); // invalidate cache
+	tr.cached_state.RemoveAll(); // invalidate cache
 	GET_ENTITY( 0 )->hCachedMatrix = GL_CacheState( g_vecZero, g_vecZero );
 
 	tr.num_2D_shadows_used = tr.num_CM_shadows_used = 0;
@@ -454,7 +454,7 @@ static bool R_HandleLightEntity(cl_entity_t *ent)
 	
 	if (!entity.Cinematic()) // dynamic light
 	{
-		if (entity.Spotlight()) // spotlight
+		if (entity.Spotlight()) // dynamic light with texture projection
 		{
 			tex = tr.spotlightTexture[entity.GetSpotlightTextureIndex()];
 			type = LIGHT_SPOT;
@@ -471,45 +471,19 @@ static bool R_HandleLightEntity(cl_entity_t *ent)
 		if (entity.EnableLensFlare())
 			flags |= DLF_LENSFLARE;
 	}
-	else // dynamic light with avi file
+	else // dynamic light with video file projection
 	{
-		if (!entity.GetAviFileIndex())
-			return true; // bad avi file
+		if (!entity.GetVideoFileIndex())
+			return true; // invalid file index
 
 		if (dlight->spotlightTexture == tr.spotlightTexture[1])
-			return true; // bad avi file
+			return true; // invalid texture?
 
-		flags = DLF_ASPECT3X4;	// fit to film01.avi aspect
+		flags = DLF_ASPECT3X4 | DLF_MOVIE;	// fit to film01.avi aspect
 		type = LIGHT_SPOT;
 
-		// found the corresponding cinstate
-		const char *cinname = gRenderfuncs.GetFileByIndex(entity.GetAviFileIndex());
-		int hCin = R_PrecacheCinematic(cinname);
-
-		if (hCin >= 0 && !dlight->cinTexturenum)
-			dlight->cinTexturenum = R_AllocateCinematicTexture(TF_SPOTLIGHT);
-
-		if (hCin == -1 || dlight->cinTexturenum <= 0 || !CIN_IS_ACTIVE(tr.cinematics[hCin].state))
-		{
-			// cinematic textures limit exceeded or movie not found
-			dlight->spotlightTexture = tr.spotlightTexture[1];
-			return true;
-		}
-
-		gl_movie_t *cin = &tr.cinematics[hCin];
-
-		// advances cinematic time
-		float cin_time = fmod(entity.GetCinTime(), cin->length);
-
-		// read the next frame
-		int cin_frame = CIN_GET_FRAME_NUMBER(cin->state, cin_time);
-		if (cin_frame != dlight->lastframe)
-		{
-			// upload the new frame
-			byte *raw = CIN_GET_FRAMEDATA(cin->state, cin_frame);
-			CIN_UPLOAD_FRAME(tr.cinTextures[dlight->cinTexturenum - 1], cin->xres, cin->yres, cin->xres, cin->yres, raw);
-			dlight->lastframe = cin_frame;
-		}
+		if (!R_UpdateCinematicDynLight(entity.GetVideoFileIndex(), dlight))
+			return true; 
 
 		if (entity.DisableShadows())
 			flags |= DLF_NOSHADOWS;

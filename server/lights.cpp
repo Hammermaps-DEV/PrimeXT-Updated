@@ -589,6 +589,14 @@ private:
 LINK_ENTITY_TO_CLASS(env_dynlight, CDynamicLight);
 
 BEGIN_DATADESC( CDynamicLight )
+	DEFINE_FIELD( m_iOnStyle, FIELD_INTEGER ),
+	DEFINE_FIELD( m_iOffStyle, FIELD_INTEGER ),
+	DEFINE_FIELD( m_iTurnOnStyle, FIELD_INTEGER ),
+	DEFINE_FIELD( m_iTurnOffStyle, FIELD_INTEGER ),
+	DEFINE_FIELD( m_iTurnOnTime, FIELD_INTEGER ),
+	DEFINE_FIELD( m_iTurnOffTime, FIELD_INTEGER ),
+	DEFINE_FIELD( m_iszCurrentStyle, FIELD_STRING ),
+	DEFINE_FIELD( m_flBrightness, FIELD_FLOAT ),
 	DEFINE_FUNCTION( CineThink ),
 	DEFINE_FUNCTION( PVSThink ),
 END_DATADESC()
@@ -657,9 +665,8 @@ void CDynamicLight::Precache()
 
 	if (!FStringNull(pev->message))
 	{
-		const char *ext = UTIL_FileExtension(STRING(pev->message));
-
-		if (!Q_stricmp(ext, "avi"))
+		const char *filepath = STRING(pev->message);
+		if (UTIL_ValidMovieFileExtension(filepath))
 		{
 			// 0 if movie not found
 			pev->sequence = UTIL_PrecacheMovie(pev->message);

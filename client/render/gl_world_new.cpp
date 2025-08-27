@@ -283,7 +283,8 @@ static void Mod_LoadWorldMaterials( void )
 		if( !Q_strncmp( tx->name, "movie", 5 ))
 			SetBits( mat->flags, BRUSH_FULLBRIGHT );
 
-		if (tx->name[0] == '!' || !Q_strncmp(tx->name, "water", 5))
+		bool liquidScrollFlag = !Q_strncmp(tx->name, "!scroll", 7);
+		if (tx->name[0] == '!' || !Q_strncmp(tx->name, "water", 5) || liquidScrollFlag)
 		{
 			// liquid surface should be smooth and reflective
 			SetBits(mat->flags, BRUSH_REFLECT | BRUSH_LIQUID);
@@ -293,6 +294,10 @@ static void Mod_LoadWorldMaterials( void )
 			
 			if (tr.waterTextures[0].Initialized()) {
 				SetBits(mat->flags, BRUSH_HAS_BUMP);
+			}
+
+			if (liquidScrollFlag) {
+				SetBits( mat->flags, BRUSH_CONVEYOR );
 			}
 		}
 
@@ -795,7 +800,8 @@ static word Mod_ShaderSceneForward( msurface_t *s )
 	// mirror is actual only if we has actual screen texture!
 	bool surf_monitor = FBitSet(s->flags, SURF_SCREEN);
 	bool surf_portal = FBitSet(s->flags, SURF_PORTAL);
-	bool mirror = Surf_CheckSubview( s->info ) && !surf_monitor && !surf_portal;
+	bool surf_movie = FBitSet(s->flags, SURF_MOVIE);
+	bool mirror = Surf_CheckSubview( s->info ) && !surf_monitor && !surf_portal && !surf_movie;
 
 	if( es->forwardScene[mirror].IsValid() && es->lastRenderMode == e->curstate.rendermode )
 		return es->forwardScene[mirror].GetHandle(); // valid
@@ -868,8 +874,16 @@ static word Mod_ShaderSceneForward( msurface_t *s )
 			GL_AddShaderDirective( options, "HAS_LUMA" );
 	}
 
-	if (surf_monitor) {
-		GL_AddShaderDirective( options, "MONITOR_BRUSH" );
+	if (surf_monitor) 
+	{
+		GL_AddShaderDirective(options, "MONITOR_BRUSH");
+		if (FBitSet(e->curstate.iuser1, CF_MONOCHROME))
+			GL_AddShaderDirective(options, "MONOCHROME");
+	}
+	else if (surf_movie)
+	{
+		if (FBitSet(e->curstate.iuser1, CF_MONOCHROME))
+			GL_AddShaderDirective(options, "MONOCHROME");
 	}
 
 	if( FBitSet( mat->flags, BRUSH_MULTI_LAYERS ) && landscape && landscape->terrain )
@@ -1251,6 +1265,8 @@ if shaders was changed we need to resort them
 */
 void Mod_ResortFaces( void )
 {
+	ZoneScoped;
+
 	int	i;
 
 	if( !tr.params_changed ) return;
@@ -1990,8 +2006,8 @@ static void Mod_LoadWorld( model_t *mod, const byte *buf )
 	extrahdr = (dextrahdr_t *)((byte *)buf + sizeof( dheader_t ));
 
 	if( RENDER_GET_PARM( PARM_FEATURES, 0 ) & ENGINE_LARGE_LIGHTMAPS )
-		glConfig.block_size = BLOCK_SIZE_MAX;
-	else glConfig.block_size = BLOCK_SIZE_DEFAULT;
+		glConfig.block_size = GL_BLOCK_SIZE_MAX;
+	else glConfig.block_size = GL_BLOCK_SIZE_DEFAULT;
 
 	if( RENDER_GET_PARM( PARM_MAP_HAS_DELUXE, 0 ))
 		SetBits( world->features, WORLD_HAS_DELUXEMAP );
@@ -2005,9 +2021,6 @@ static void Mod_LoadWorld( model_t *mod, const byte *buf )
 	R_CheckChanges(); // catch all the cvar changes
 	tr.glsl_valid_sequence = 1;
 	tr.params_changed = false;
-
-	// precache and upload cinematics
-	R_InitCinematics();
 
 	// prepare visibility and setup leaf extradata
 	Mod_SetupLeafExtradata( &header->lumps[LUMP_LEAFS], &header->lumps[LUMP_VISIBILITY], buf );
@@ -2108,6 +2121,9 @@ static void Mod_LoadWorld( model_t *mod, const byte *buf )
 
 	Mod_FinalizeWorld();
 	Mod_CreateBufferObject();
+
+	// precache and upload cinematics
+	R_InitCinematics();
 
 	// helper to precache shaders
 	R_InitDefaultLights();
@@ -2499,6 +2515,8 @@ R_SetSurfaceUniforms
 */
 void R_SetSurfaceUniforms( word hProgram, msurface_t *surface, bool force )
 {
+	ZoneScoped;
+
 	mextrasurf_t *es = surface->info;
 	Vector4D lightstyles, lightdir;
 	cl_entity_t *e = es->parent;
@@ -2712,8 +2730,7 @@ void R_SetSurfaceUniforms( word hProgram, msurface_t *surface, bool force )
 			u->SetValue( es->texofs[0], es->texofs[1] );
 			break;
 		case UT_VIEWORIGIN:
-			if( pl ) u->SetValue( GetVieworg().x, GetVieworg().y, GetVieworg().z );
-			else u->SetValue( tr.modelorg.x, tr.modelorg.y, tr.modelorg.z, e->hCachedMatrix ? 1.0f : 0.0f );
+			u->SetValue( GetVieworg().x, GetVieworg().y, GetVieworg().z );
 			break;
 		case UT_VIEWRIGHT:
 			u->SetValue( GetVRight().x, GetVRight().y, GetVRight().z );
@@ -2727,7 +2744,7 @@ void R_SetSurfaceUniforms( word hProgram, msurface_t *surface, bool force )
 			{
 				int sum = (e->curstate.rendercolor.r + e->curstate.rendercolor.g + e->curstate.rendercolor.b);
 
-				if(( sum > 0 ) && !FBitSet( s->flags, SURF_CONVEYOR ))
+				if(( sum > 0 ) && !FBitSet( s->flags, SURF_CONVEYOR ) && !FBitSet( mat->flags, BRUSH_CONVEYOR ))
 				{
 					r = e->curstate.rendercolor.r / 255.0f;
 					g = e->curstate.rendercolor.g / 255.0f;
@@ -2915,16 +2932,17 @@ static int R_SortSolidBrushFaces( const CSolidEntry *a, const CSolidEntry *b )
 
 /*
 ================
-R_RenderDynLightList
+R_BuildFaceListsForLight
 
+fills solid/transparent/light lists for grass and world/models surfaces 
 ================
 */
-void R_BuildFaceListForLight( CDynLight *pl, bool solid )
+void R_BuildFaceListsForLight( CDynLight *pl, bool solid )
 {
 	RI->currententity = GET_ENTITY( 0 );
 	RI->currentmodel = RI->currententity->model;
-	RI->frame.light_faces.Purge();
-	RI->frame.light_grass.Purge();
+	RI->frame.light_faces.RemoveAll();
+	RI->frame.light_grass.RemoveAll();
 	tr.modelorg = pl->origin;
 
 	if( solid )
@@ -3080,11 +3098,13 @@ void R_DrawLightForSurfList( CDynLight *pl )
 ================
 R_RenderDynLightList
 
-draw dynamic lights for world and bmodels
+draw dynamic lights for world, bmodels and grass
 ================
 */
 void R_RenderDynLightList( bool solid )
 {
+	ZoneScoped;
+
 	if( FBitSet( RI->params, RP_ENVVIEW|RP_SKYVIEW ))
 		return;
 
@@ -3125,7 +3145,7 @@ void R_RenderDynLightList( bool solid )
 		RI->currentlight = pl;
 
 		// draw world from light position
-		R_BuildFaceListForLight( pl, solid );
+		R_BuildFaceListsForLight( pl, solid );
 
 		if( !RI->frame.light_faces.Count() && !RI->frame.light_grass.Count() )
 			continue;	// no interaction with this light?
@@ -3145,6 +3165,8 @@ R_RenderSolidBrushList
 */
 void R_RenderSolidBrushList( void )
 {
+	ZoneScoped;
+
 	cl_entity_t	*cached_entity = NULL;
 	material_t	*cached_material = NULL;
 	int		cached_mirror = -1;
@@ -3251,6 +3273,7 @@ void R_RenderSolidBrushList( void )
 
 	if( numTempElems )
 	{
+		ZoneScopedN("Surfaces batch draw");
 		pglDrawRangeElements( GL_TRIANGLES, startv, endv - 1, numTempElems, GL_UNSIGNED_INT, tempElems );
 		r_stats.c_total_tris += (numTempElems / 3);
 		r_stats.num_flushes_total++;

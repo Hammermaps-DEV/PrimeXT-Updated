@@ -167,6 +167,10 @@ void main( void )
 	albedo = colormap2D( u_ColorMap, vec_TexDiffuse );
 #endif
 
+#if defined( MONOCHROME )
+	albedo.rgb = vec3(GetLuminance(albedo.rgb));
+#endif
+
 #if !defined( ALPHA_BLENDING ) && !defined( USING_SCREENCOPY ) && !defined( APPLY_TERRAIN )
 	albedo.a = AlphaRescaling( u_ColorMap, vec_TexDiffuse, albedo.a );
 #endif
@@ -279,7 +283,7 @@ void main( void )
 #endif // USING_SCREENCOPY
 
 #if defined( APPLY_FOG_EXP )
-	result.rgb = CalculateFog(result.rgb, u_FogParams, length(u_ViewOrigin - var_Position));
+	result.rgb = CalculateFog(result.rgb, u_FogParams, gl_FragCoord.z / gl_FragCoord.w);
 #endif
 
 #if defined( LIGHTMAP_DEBUG ) || defined( LIGHTVEC_DEBUG )

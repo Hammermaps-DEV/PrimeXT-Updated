@@ -26,6 +26,8 @@ CBaseEntity
 				CBaseGroup
 */
 #pragma once
+#include "util.h"
+
 #define	MAX_PATH_SIZE	10 // max number of nodes available for a path.
 
 // These are caps bits to indicate what an object's capabilities (currently used for save/restore and level transitions)
@@ -66,6 +68,7 @@ CBaseEntity
 #include "physic.h"
 
 #include "exportdef.h"
+#include <cstring>
 
 // C functions for external declarations that call the appropriate C++ methods
 
@@ -156,6 +159,7 @@ public:
 	DECLARE_DATADESC();
 
 	// Always keep this virtual destructor, so derived classes can be properly destructed
+	CBaseEntity();
 	virtual ~CBaseEntity() {}
 
 	// path corners
@@ -484,19 +488,19 @@ public:
 
 	virtual void MoveDone( void ) { if( m_pfnMoveDone )(this->*m_pfnMoveDone)(); };
 
-	// allow engine to allocate instance data
-	void *operator new( size_t stAllocateBlock, entvars_t *pev )
+	void *operator new(size_t stAllocateBlock)
 	{
-		return (void *)ALLOC_PRIVATE(ENT(pev), static_cast<int>(stAllocateBlock));
+		void *block = ::operator new(stAllocateBlock);
+		std::memset(block, 0, stAllocateBlock);
+		return block;
 	};
 
-	// don't use this.
-#if _MSC_VER >= 1200 // only build this code if MSVC++ 6.0 or higher
-	void operator delete(void *pMem, entvars_t *pev)
+	// don't call delete on entities directly, tell the engine to delete it instead
+	void operator delete(void *pMem)
 	{
-		pev->flags |= FL_KILLME;
+		::operator delete(pMem);
 	};
-#endif
+
 	void UpdateOnRemove( void );
 
 	// common member functions
@@ -1081,7 +1085,8 @@ template <class T> T * GetClassPtr( T *a )
 	if (a == NULL) 
 	{
 		// allocate private data 
-		a = new(pev) T;
+		a = new T;
+		pev->pContainingEntity->pvPrivateData = a; // replicate the ALLOC_PRIVATE engine function's behavior
 		a->pev = pev;
 	}
 	return a;
@@ -1101,7 +1106,8 @@ template <class T> T * GetClassPtr( T *newEnt, const char *className )
 	if (newEnt == NULL) 
 	{
 		// allocate private data 
-		newEnt = new(pev) T;
+		newEnt = new T;
+		pev->pContainingEntity->pvPrivateData = newEnt; // replicate the ALLOC_PRIVATE engine function's behavior
 		newEnt->pev = pev;
 	}
 	newEnt->SetClassname( className );

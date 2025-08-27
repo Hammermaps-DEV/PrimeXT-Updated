@@ -159,12 +159,7 @@ void main( void )
 #endif
 
 #if defined( APPLY_FOG_EXP )
-#if defined( APPLY_COLORBLEND )
-	result.rgb = CalculateFog(result.rgb, u_FogParams, length(u_ViewOrigin - var_Position));
-#else
-	float fogFactor = saturate(exp2(-u_FogParams.w * length(u_ViewOrigin - var_Position)));
-	result.a *= fogFactor; // modulate alpha
-#endif
+	result.rgb = CalculateFog(result.rgb, u_FogParams, gl_FragCoord.z / gl_FragCoord.w);
 #endif
 	gl_FragColor = result;
 }

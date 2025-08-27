@@ -108,14 +108,14 @@ void R_BuildViewPassHierarchy( void )
 
 void R_ClearFrameLists( void )
 {
-	RI->frame.solid_faces.Purge();
-	RI->frame.solid_meshes.Purge();
-	RI->frame.grass_list.Purge();
-	RI->frame.trans_list.Purge();
-	RI->frame.light_meshes.Purge();
-	RI->frame.light_faces.Purge();
-	RI->frame.light_grass.Purge();
-	RI->frame.primverts.Purge();
+	RI->frame.solid_faces.RemoveAll();
+	RI->frame.solid_meshes.RemoveAll();
+	RI->frame.grass_list.RemoveAll();
+	RI->frame.trans_list.RemoveAll();
+	RI->frame.light_meshes.RemoveAll();
+	RI->frame.light_faces.RemoveAll();
+	RI->frame.light_grass.RemoveAll();
+	RI->frame.primverts.RemoveAll();
 	RI->frame.num_subview_faces = 0;
 }
 
@@ -246,6 +246,7 @@ void R_MarkWorldVisibleFaces( model_t *model )
 	mleaf_t		*leaf;
 	int		i, j;
 
+	ZoneScoped;
 	memset( RI->view.visfaces, 0x00, (worldmodel->numsurfaces + 7) >> 3 );
 	memset( RI->view.vislight, 0x00, (world->numworldlights + 7) >> 3 );
 	ClearBounds( RI->view.visMins, RI->view.visMaxs );
@@ -827,6 +828,8 @@ NOTE: particles are drawing with engine methods
 */
 void R_DrawParticles( qboolean trans )
 {
+	ZoneScoped;
+
 	ref_viewpass_t	rvp;
 
 	if( FBitSet( RI->params, ( RP_ENVVIEW|RP_SKYVIEW )))
@@ -874,6 +877,8 @@ R_RenderTransList
 */
 void R_RenderTransList( void )
 {
+	ZoneScoped;
+
 	if( !RI->frame.trans_list.Count() )
 		return;
 
@@ -931,6 +936,8 @@ R_RenderScene
 */
 void R_RenderScene( const ref_viewpass_t *rvp, RefParams params )
 {
+	ZoneScoped;
+
 	// now we know about pass specific
 	RI->params = params;
 
@@ -950,6 +957,7 @@ void R_RenderScene( const ref_viewpass_t *rvp, RefParams params )
 	R_SetupGLstate();
 	R_Clear(~0, tr.ignore_2d_skybox);
 
+	R_UpdateFogParameters();
 	R_DrawSkyBox();
 	R_RenderSolidBrushList();
 	R_RenderSolidStudioList();
@@ -987,6 +995,7 @@ the client (e.g. playersetup preview)
 */
 int HUD_RenderFrame( const struct ref_viewpass_s *rvp )
 {
+	ZoneScoped;
 	GL_DEBUG_SCOPE();
 
 	RefParams refParams = RP_NONE;
@@ -1039,6 +1048,7 @@ int HUD_RenderFrame( const struct ref_viewpass_s *rvp )
 	defVP = *rvp;
 
 	GL_BackendEndFrame( &defVP, refParams );
+	FrameMark;
 	return 1;
 }
 
